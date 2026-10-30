@@ -266,11 +266,14 @@ end
 -- 判斷 URL 是否為 B 站直播串流
 local function is_bili_live_url(url)
     if not url or url == "" then return false end
-    if url:find("live%-bvc") or url:find("gotcha") or url:find("/live/") or url:find("/live%-") or url:find("live%.bilibili%.com") then
+    local lower = url:lower()
+    if lower:find("live%-bvc") or lower:find("gotcha") or lower:find("/live/") or lower:find("/live%-") or lower:find("live%.bilibili%.com") then
         return true
     end
-    if settings.live_acceleration and (url:find("mcdn%.") or url:find("[?&]os=mcdn")) then
-        return true
+    if settings.live_acceleration and (lower:find("mcdn%.") or lower:find("[?&]os=mcdn")) then
+        if lower:find("/live") or lower:find("bvc") then
+            return true
+        end
     end
     return false
 end
@@ -284,10 +287,10 @@ local function is_bili_media_url(url)
     if is_bili_live_url(url) then
         return true
     end
-    if url:find("mcdn%.") or url:find("/v1/resource/") or url:find("[?&]os=mcdn") then
-        return false
-    end
     if url:find("bilivideo%.com") or url:find("bilivideo%.cn") or url:find("akamaized%.net") or url:find("/upgcxcode/") then
+        return true
+    end
+    if url:find("mcdn%.") or url:find("[?&]os=mcdn") or url:find("/v1/resource/") then
         return true
     end
     return false
@@ -826,27 +829,54 @@ local function render_advanced_page(ass, x0, y0, w, h)
         ass:new_event()
         ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}BTR將智能選擇需要的線程數。", x0 + 34, row2_y + 28))
 
-        -- 線程分段 Slider / 選擇器: 4, 8, 16, 32, 64, 128
+        -- 線程分段 Slider (完整還原圖二樣式：連續軌道、粉色進度條、圓形滑塊與下方檔位數字)
         local th_steps = { 4, 8, 16, 32, 64, 128 }
-        local step_y = th_card_y + 92
-        local step_w = math.floor((card_w - 28) / #th_steps)
+        local track_x = x0 + 34
+        local track_w = card_w - 28
+        local track_y = th_card_y + 86
+        local curr_idx = 2 -- 預設為 8
         for i, val in ipairs(th_steps) do
-            local sx = x0 + 24 + (i - 1) * step_w
-            local is_val_sel = (settings.threads == val)
-            local is_sh = (hovered_btn == "th_step_" .. val)
-            table.insert(buttons, { id = "th_step_" .. val, threads = val, x = sx, y = step_y - 12, w = step_w, h = 32 })
+            if settings.threads == val then
+                curr_idx = i
+                break
+            end
+        end
 
+        local thumb_x = math.floor(track_x + (curr_idx - 1) * track_w / 5)
+
+        -- 1. 底層軌道 (深色圓角條)
+        ass:new_event()
+        ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&H302A2E&}")
+        ass:draw_start()
+        ass:round_rect_cw(track_x, track_y, track_x + track_w, track_y + 8, 4)
+        ass:draw_stop()
+
+        -- 2. 已選進度條 (粉色填滿)
+        if curr_idx > 1 then
             ass:new_event()
-            ass:append(string.format("{\\pos(0,0)\\bord1\\3c%s\\1c%s}",
-                is_val_sel and "&H9972FB&" or (is_sh and "&H4A4242&" or "&H353030&"),
-                is_val_sel and "&H9972FB&" or "&H282424&"))
+            ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&H885BEB&}")
             ass:draw_start()
-            ass:round_rect_cw(sx + 2, step_y - 8, sx + step_w - 2, step_y + 16, 5)
+            ass:round_rect_cw(track_x, track_y, thumb_x, track_y + 8, 4)
             ass:draw_stop()
+        end
+
+        -- 3. 圓形滑塊 Knob (灰色/懸停高亮)
+        local is_thumb_h = (hovered_btn and hovered_btn:match("^th_step_"))
+        ass:new_event()
+        ass:append(string.format("{\\pos(0,0)\\bord0\\shad0\\1c%s}", is_thumb_h and "&HFFFFFF&" or "&H857A7C&"))
+        ass:draw_start()
+        ass:round_rect_cw(thumb_x - 9, track_y + 4 - 9, thumb_x + 9, track_y + 4 + 9, 9)
+        ass:draw_stop()
+
+        -- 4. 下方各檔位數字標籤與點擊熱區
+        local step_half_w = math.floor(track_w / 5 / 2)
+        for i, val in ipairs(th_steps) do
+            local sx = math.floor(track_x + (i - 1) * track_w / 5)
+            table.insert(buttons, { id = "th_step_" .. val, threads = val, x = sx - step_half_w, y = track_y - 8, w = step_half_w * 2, h = 38 })
 
             ass:new_event()
-            ass:append(string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs11\\b1\\fnMicrosoft JhengHei\\1c%s}%d",
-                sx + step_w / 2, step_y + 4, is_val_sel and "&HFFFFFF&" or "&HCCCCCC&", val))
+            ass:append(string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c%s}%d",
+                sx, track_y + 22, (curr_idx == i) and "&HFFFFFF&" or "&H888888&", val))
         end
 
     elseif settings.current_tab == "buffer" then
@@ -1145,8 +1175,11 @@ local function on_mouse_click()
                 render_menu()
             elseif btn.id == "toggle_auto_threads" then
                 settings.auto_threads = not settings.auto_threads
+                if settings.auto_threads then
+                    settings.threads = 8
+                end
                 save_settings()
-                mp.osd_message("[BTR] 自動線程數已" .. (settings.auto_threads and "開啟" or "關閉"), 1.5)
+                mp.osd_message("[BTR] 自動線程數已" .. (settings.auto_threads and "開啟 (推薦8線程)" or "關閉"), 1.5)
                 render_menu()
             elseif btn.id:match("^th_step_") and btn.threads then
                 settings.threads = btn.threads

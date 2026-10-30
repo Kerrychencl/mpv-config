@@ -2221,6 +2221,29 @@ local function hide_bar(label, visible_key, anitype_key, set_visible)
     end
 end
 
+local function update_danmaku_state()
+    local present = mp.get_property_bool("user-data/danmaku/present", false)
+    if not present then
+        local sid = mp.get_property("secondary-sid", "no")
+        if sid and sid ~= "no" then
+            local tracks = mp.get_property_native("track-list") or {}
+            for _, t in ipairs(tracks) do
+                if t.type == "sub" and tostring(t.id) == tostring(sid) then
+                    local title = (t.title or ""):lower()
+                    if title:find("danmaku") or title:find("彈幕") or title:find("弹幕") then
+                        present = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if state.danmaku_present ~= present then
+        state.danmaku_present = present
+        request_init()
+    end
+end
+
 local function update_tracklist(_, track_list)
     state.audio_track_count = 0
     state.sub_track_count = 0
@@ -2233,6 +2256,7 @@ local function update_tracklist(_, track_list)
         end
     end
 
+    update_danmaku_state()
     request_init()
 end
 
@@ -2904,34 +2928,35 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                             if state.duration then hover_sec = state.duration * sliderpos / 100 end
 
                             local margin_x = 18 / r_w
-                            local thumb_w = (thumbz.available and thumbz.width > 0) and thumbz.width or thumbfast.width
-                            local thumb_h = (thumbz.available and thumbz.height > 0) and thumbz.height or thumbfast.height
-                            if thumb_w == 0 then thumb_w = 200 end
-                            if thumb_h == 0 then thumb_h = 112 end
+                            local thumb_w = (thumbfast.available and thumbfast.width > 0) and thumbfast.width
+                                or ((thumbz.available and thumbz.width > 0) and thumbz.width or 200)
+                            local thumb_h = (thumbfast.available and thumbfast.height > 0) and thumbfast.height
+                                or ((thumbz.available and thumbz.height > 0) and thumbz.height or 112)
 
                             local thumb_x = math.min(osd_w - thumb_w - margin_x, math.max(margin_x, tx / r_w - thumb_w / 2))
                             thumb_x = math.floor(thumb_x + 0.5)
 
                             local target_screen_y = math.floor((current_y / r_h) - thumb_pad - thumb_h + 0.5)
-                            local thumb_y_px = target_screen_y * r_h
 
-                            if state.anitype == nil then
-                                -- Integer screen-pixel alignment to completely eliminate YouTube / network thumbnail floating jitter
-                                glass_rect(elem_ass, math.floor((thumb_x - thumb_pad) * r_w + 0.5), math.floor(target_screen_y * r_h - thumb_pad * r_h + 0.5),
-                                    math.floor((thumb_w + 2 * thumb_pad) * r_w + 0.5), math.floor((thumb_h + 2 * thumb_pad) * r_h + 0.5), thumb_radius,
-                                    {color = user_opts.thumbnail_box_color, fill_alpha = 0,
-                                     edge_alpha = opacity_alpha(18), rim = false,
-                                     shadow_blur = 16, shadow_y = 6, shadow_alpha = 0xA0})
+                            -- Integer screen-pixel alignment to completely eliminate YouTube / network thumbnail floating jitter
+                            local box_x = math.floor((thumb_x - thumb_pad) * r_w + 0.5)
+                            local box_y = math.floor((target_screen_y - thumb_pad) * r_h + 0.5)
+                            local box_w = math.floor((thumb_w + 2 * thumb_pad) * r_w + 0.5)
+                            local box_h = math.floor((thumb_h + 2 * thumb_pad) * r_h + 0.5)
 
-                                thumbz_hover(hover_sec, thumb_x, target_screen_y)
-                            end
+                            glass_rect(elem_ass, box_x, box_y, box_w, box_h, thumb_radius,
+                                {color = user_opts.thumbnail_box_color, fill_alpha = 0,
+                                 edge_alpha = opacity_alpha(18), rim = false,
+                                 shadow_blur = 16, shadow_y = 6, shadow_alpha = 0xA0})
+
+                            thumbz_hover(hover_sec, thumb_x, target_screen_y)
 
                             -- Keep tooltips anchored to the thumbnail center even at window edges
-                            tx = (thumb_x + thumbz.width / 2) * r_w
+                            tx = (thumb_x + thumb_w / 2) * r_w
                             an = 2
 
                             -- Advance anchor above the thumbnail
-                            current_y = thumb_y_px - (thumb_pad * r_h) - gap
+                            current_y = box_y - gap
                         end
 
                         if chapter_text and r_w > 0 then
@@ -7073,11 +7098,11 @@ mp.register_event("start-file", function()
     -- reset ab loop on new file start
     mp.set_property("ab-loop-a", "no")
     mp.set_property("ab-loop-b", "no")
+    state.danmaku_present = false
     request_init()
 end)
-mp.observe_property("user-data/danmaku/present", "bool", function(_, val)
-    state.danmaku_present = val == true
-    request_tick()
+mp.observe_property("user-data/danmaku/present", "bool", function()
+    update_danmaku_state()
 end)
 
 mp.observe_property("secondary-sub-visibility", "bool", function(_, val)
@@ -7085,19 +7110,8 @@ mp.observe_property("secondary-sub-visibility", "bool", function(_, val)
     request_tick()
 end)
 
-mp.observe_property("secondary-sid", "string", function(_, sid)
-    if sid and sid ~= "no" then
-        local tracks = mp.get_property_native("track-list") or {}
-        for _, t in ipairs(tracks) do
-            if t.type == "sub" and tostring(t.id) == tostring(sid) then
-                local title = (t.title or ""):lower()
-                if title:find("danmaku") or title:find("彈幕") or title:find("弹幕") then
-                    state.danmaku_present = true
-                    request_tick()
-                end
-            end
-        end
-    end
+mp.observe_property("secondary-sid", "string", function()
+    update_danmaku_state()
 end)
 
 mp.observe_property("track-list", "native", update_tracklist)
