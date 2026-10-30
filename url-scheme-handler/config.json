@@ -1,0 +1,9 @@
+{
+  "is_registry_added": true,
+  "apps": [
+    {
+      "name": "MPV",
+      "path": "D:\\Media tool\\mpv-x86_64-v3-20260610-git-304426c\\mpv.exe"
+    }
+  ]
+}

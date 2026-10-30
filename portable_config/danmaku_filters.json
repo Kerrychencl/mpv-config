@@ -1,0 +1,1478 @@
+[
+  {
+    "type": 1,
+    "filter": "\\[.*?\\]|［.*?］|[\\[\\]［］]",
+    "opened": true,
+    "id": 99990001
+  },
+  {
+    "type": 0,
+    "filter": "顏色",
+    "opened": true,
+    "id": 9829664
+  },
+  {
+    "type": 0,
+    "filter": "膚色",
+    "opened": true,
+    "id": 9829667
+  },
+  {
+    "type": 0,
+    "filter": "肤色",
+    "opened": true,
+    "id": 9838651
+  },
+  {
+    "type": 0,
+    "filter": "皮肤",
+    "opened": true,
+    "id": 9906074
+  },
+  {
+    "type": 0,
+    "filter": "痛失韩国市场",
+    "opened": true,
+    "id": 10357352
+  },
+  {
+    "type": 0,
+    "filter": "福岛",
+    "opened": true,
+    "id": 10357368
+  },
+  {
+    "type": 0,
+    "filter": "战争",
+    "opened": true,
+    "id": 10752357
+  },
+  {
+    "type": 0,
+    "filter": "二战",
+    "opened": true,
+    "id": 10752358
+  },
+  {
+    "type": 0,
+    "filter": "勿忘国耻",
+    "opened": true,
+    "id": 10752924
+  },
+  {
+    "type": 0,
+    "filter": "南京",
+    "opened": true,
+    "id": 10752925
+  },
+  {
+    "type": 0,
+    "filter": "加沙",
+    "opened": true,
+    "id": 10752927
+  },
+  {
+    "type": 0,
+    "filter": "工农",
+    "opened": true,
+    "id": 10752931
+  },
+  {
+    "type": 0,
+    "filter": "特工",
+    "opened": true,
+    "id": 10756228
+  },
+  {
+    "type": 0,
+    "filter": "间谍",
+    "opened": true,
+    "id": 10756230
+  },
+  {
+    "type": 0,
+    "filter": "福建一区",
+    "opened": true,
+    "id": 10799285
+  },
+  {
+    "type": 0,
+    "filter": "精忠报国",
+    "opened": true,
+    "id": 10844062
+  },
+  {
+    "type": 0,
+    "filter": "还在洗",
+    "opened": true,
+    "id": 10844064
+  },
+  {
+    "type": 0,
+    "filter": "这能洗",
+    "opened": true,
+    "id": 10844065
+  },
+  {
+    "type": 0,
+    "filter": "好洗",
+    "opened": true,
+    "id": 10844068
+  },
+  {
+    "type": 0,
+    "filter": "出生",
+    "opened": true,
+    "id": 10844098
+  },
+  {
+    "type": 0,
+    "filter": "1557",
+    "opened": true,
+    "id": 10844276
+  },
+  {
+    "type": 0,
+    "filter": "你好",
+    "opened": true,
+    "id": 10984837
+  },
+  {
+    "type": 0,
+    "filter": "1314",
+    "opened": true,
+    "id": 10984846
+  },
+  {
+    "type": 0,
+    "filter": "你们好",
+    "opened": true,
+    "id": 10984858
+  },
+  {
+    "type": 0,
+    "filter": "美式居合",
+    "opened": true,
+    "id": 10984981
+  },
+  {
+    "type": 0,
+    "filter": "熟让疼",
+    "opened": true,
+    "id": 10985023
+  },
+  {
+    "type": 0,
+    "filter": "好的",
+    "opened": true,
+    "id": 10985062
+  },
+  {
+    "type": 0,
+    "filter": "马克思",
+    "opened": true,
+    "id": 10985711
+  },
+  {
+    "type": 0,
+    "filter": "大家好",
+    "opened": true,
+    "id": 10989809
+  },
+  {
+    "type": 0,
+    "filter": "hello",
+    "opened": true,
+    "id": 10989817
+  },
+  {
+    "type": 0,
+    "filter": "在吗",
+    "opened": true,
+    "id": 10989823
+  },
+  {
+    "type": 0,
+    "filter": "普通话",
+    "opened": true,
+    "id": 10990275
+  },
+  {
+    "type": 0,
+    "filter": "舔狗",
+    "opened": true,
+    "id": 10990280
+  },
+  {
+    "type": 0,
+    "filter": "舔女",
+    "opened": true,
+    "id": 10990287
+  },
+  {
+    "type": 0,
+    "filter": "krd",
+    "opened": true,
+    "id": 14431310
+  },
+  {
+    "type": 0,
+    "filter": "牢大",
+    "opened": true,
+    "id": 10990296
+  },
+  {
+    "type": 0,
+    "filter": "口音",
+    "opened": true,
+    "id": 10990297
+  },
+  {
+    "type": 0,
+    "filter": "出生打野",
+    "opened": true,
+    "id": 10990299
+  },
+  {
+    "type": 0,
+    "filter": "美利坚",
+    "opened": true,
+    "id": 10990301
+  },
+  {
+    "type": 0,
+    "filter": "在观看",
+    "opened": true,
+    "id": 10990397
+  },
+  {
+    "type": 0,
+    "filter": "哈喽",
+    "opened": true,
+    "id": 10990398
+  },
+  {
+    "type": 0,
+    "filter": "熟练得让人心疼",
+    "opened": true,
+    "id": 10990409
+  },
+  {
+    "type": 0,
+    "filter": "熟练的心疼",
+    "opened": true,
+    "id": 10990410
+  },
+  {
+    "type": 0,
+    "filter": "黑人",
+    "opened": true,
+    "id": 10990414
+  },
+  {
+    "type": 0,
+    "filter": "专家",
+    "opened": true,
+    "id": 10999897
+  },
+  {
+    "type": 0,
+    "filter": "别云了",
+    "opened": true,
+    "id": 10999917
+  },
+  {
+    "type": 0,
+    "filter": "三光",
+    "opened": true,
+    "id": 10999995
+  },
+  {
+    "type": 0,
+    "filter": "速通",
+    "opened": true,
+    "id": 11000033
+  },
+  {
+    "type": 0,
+    "filter": "踩一捧一",
+    "opened": true,
+    "id": 11000039
+  },
+  {
+    "type": 0,
+    "filter": "审美",
+    "opened": true,
+    "id": 11000320
+  },
+  {
+    "type": 0,
+    "filter": "豪华版",
+    "opened": true,
+    "id": 11000325
+  },
+  {
+    "type": 0,
+    "filter": "无伤没了",
+    "opened": true,
+    "id": 11001321
+  },
+  {
+    "type": 0,
+    "filter": "时间够吗",
+    "opened": true,
+    "id": 11004408
+  },
+  {
+    "type": 0,
+    "filter": "字幕",
+    "opened": true,
+    "id": 11033437
+  },
+  {
+    "type": 0,
+    "filter": "中文翻译",
+    "opened": true,
+    "id": 11033525
+  },
+  {
+    "type": 0,
+    "filter": "石油",
+    "opened": true,
+    "id": 11035141
+  },
+  {
+    "type": 0,
+    "filter": "23.",
+    "opened": true,
+    "id": 11035142
+  },
+  {
+    "type": 0,
+    "filter": "安倍晋三",
+    "opened": true,
+    "id": 11038242
+  },
+  {
+    "type": 0,
+    "filter": "zz正确",
+    "opened": true,
+    "id": 11038244
+  },
+  {
+    "type": 0,
+    "filter": "太正确了",
+    "opened": true,
+    "id": 11038255
+  },
+  {
+    "type": 0,
+    "filter": "女拳",
+    "opened": true,
+    "id": 11038257
+  },
+  {
+    "type": 0,
+    "filter": "zzzq",
+    "opened": true,
+    "id": 11038264
+  },
+  {
+    "type": 0,
+    "filter": "正确",
+    "opened": true,
+    "id": 11038265
+  },
+  {
+    "type": 0,
+    "filter": "不够黑",
+    "opened": true,
+    "id": 11038270
+  },
+  {
+    "type": 0,
+    "filter": "幽默",
+    "opened": true,
+    "id": 11038273
+  },
+  {
+    "type": 0,
+    "filter": "大飞",
+    "opened": true,
+    "id": 11038279
+  },
+  {
+    "type": 0,
+    "filter": "中国台湾",
+    "opened": true,
+    "id": 11054946
+  },
+  {
+    "type": 0,
+    "filter": "唐僧",
+    "opened": true,
+    "id": 11060122
+  },
+  {
+    "type": 0,
+    "filter": "唐马",
+    "opened": true,
+    "id": 11060123
+  },
+  {
+    "type": 0,
+    "filter": "唐人劫",
+    "opened": true,
+    "id": 11061091
+  },
+  {
+    "type": 0,
+    "filter": "癌症剑魔",
+    "opened": true,
+    "id": 11061114
+  },
+  {
+    "type": 0,
+    "filter": "唐魔",
+    "opened": true,
+    "id": 11061120
+  },
+  {
+    "type": 0,
+    "filter": "血不是绿色的吗",
+    "opened": true,
+    "id": 11061201
+  },
+  {
+    "type": 0,
+    "filter": "个人看",
+    "opened": true,
+    "id": 11061210
+  },
+  {
+    "type": 0,
+    "filter": "不看滚",
+    "opened": true,
+    "id": 11061243
+  },
+  {
+    "type": 0,
+    "filter": "、、",
+    "opened": true,
+    "id": 11061257
+  },
+  {
+    "type": 0,
+    "filter": "唐枪",
+    "opened": true,
+    "id": 11061415
+  },
+  {
+    "type": 0,
+    "filter": "唐氏",
+    "opened": true,
+    "id": 11062670
+  },
+  {
+    "type": 0,
+    "filter": "台湾省",
+    "opened": true,
+    "id": 11067998
+  },
+  {
+    "type": 0,
+    "filter": "越听越红",
+    "opened": true,
+    "id": 11117243
+  },
+  {
+    "type": 0,
+    "filter": "红起来了",
+    "opened": true,
+    "id": 11117245
+  },
+  {
+    "type": 0,
+    "filter": "是人啊",
+    "opened": true,
+    "id": 11129235
+  },
+  {
+    "type": 0,
+    "filter": "舒服了",
+    "opened": true,
+    "id": 11167194
+  },
+  {
+    "type": 0,
+    "filter": "你要考研",
+    "opened": true,
+    "id": 11174938
+  },
+  {
+    "type": 0,
+    "filter": "华为不卡",
+    "opened": true,
+    "id": 11177199
+  },
+  {
+    "type": 0,
+    "filter": "1556",
+    "opened": true,
+    "id": 11202292
+  },
+  {
+    "type": 0,
+    "filter": "心疼",
+    "opened": true,
+    "id": 11307279
+  },
+  {
+    "type": 0,
+    "filter": "小姐姐",
+    "opened": true,
+    "id": 11309170
+  },
+  {
+    "type": 0,
+    "filter": "mua",
+    "opened": true,
+    "id": 11309174
+  },
+  {
+    "type": 0,
+    "filter": "我先抱走了",
+    "opened": true,
+    "id": 11309176
+  },
+  {
+    "type": 0,
+    "filter": "老婆",
+    "opened": true,
+    "id": 11309178
+  },
+  {
+    "type": 0,
+    "filter": "2020",
+    "opened": true,
+    "id": 11309179
+  },
+  {
+    "type": 0,
+    "filter": "妹紙",
+    "opened": true,
+    "id": 11309183
+  },
+  {
+    "type": 0,
+    "filter": "正在看",
+    "opened": true,
+    "id": 11309185
+  },
+  {
+    "type": 0,
+    "filter": "妹子",
+    "opened": true,
+    "id": 11309191
+  },
+  {
+    "type": 0,
+    "filter": "0.5倍速",
+    "opened": true,
+    "id": 11309193
+  },
+  {
+    "type": 0,
+    "filter": "学费",
+    "opened": true,
+    "id": 11309237
+  },
+  {
+    "type": 0,
+    "filter": "[次遍]过$",
+    "opened": true,
+    "id": 11309710
+  },
+  {
+    "type": 0,
+    "filter": "广普",
+    "opened": true,
+    "id": 11313404
+  },
+  {
+    "type": 0,
+    "filter": "2024",
+    "opened": true,
+    "id": 11315141
+  },
+  {
+    "type": 0,
+    "filter": "td",
+    "opened": true,
+    "id": 11317097
+  },
+  {
+    "type": 0,
+    "filter": "22年",
+    "opened": true,
+    "id": 11320792
+  },
+  {
+    "type": 0,
+    "filter": "2021",
+    "opened": true,
+    "id": 11320793
+  },
+  {
+    "type": 0,
+    "filter": "24年",
+    "opened": true,
+    "id": 11320799
+  },
+  {
+    "type": 0,
+    "filter": "26年",
+    "opened": true,
+    "id": 11320800
+  },
+  {
+    "type": 0,
+    "filter": "在此",
+    "opened": true,
+    "id": 11320802
+  },
+  {
+    "type": 0,
+    "filter": "21年",
+    "opened": true,
+    "id": 11320814
+  },
+  {
+    "type": 0,
+    "filter": "23年",
+    "opened": true,
+    "id": 11320816
+  },
+  {
+    "type": 0,
+    "filter": "nm",
+    "opened": true,
+    "id": 11320818
+  },
+  {
+    "type": 0,
+    "filter": "越共",
+    "opened": true,
+    "id": 11320923
+  },
+  {
+    "type": 0,
+    "filter": "skr",
+    "opened": true,
+    "id": 11324884
+  },
+  {
+    "type": 0,
+    "filter": "freestyle",
+    "opened": true,
+    "id": 11324887
+  },
+  {
+    "type": 0,
+    "filter": "好女儿",
+    "opened": true,
+    "id": 11324894
+  },
+  {
+    "type": 0,
+    "filter": "台湾",
+    "opened": true,
+    "id": 11326265
+  },
+  {
+    "type": 0,
+    "filter": "武汉",
+    "opened": true,
+    "id": 11720820
+  },
+  {
+    "type": 0,
+    "filter": "新冠",
+    "opened": true,
+    "id": 11720822
+  },
+  {
+    "type": 0,
+    "filter": "阿三",
+    "opened": true,
+    "id": 11720825
+  },
+  {
+    "type": 0,
+    "filter": "封建迷信",
+    "opened": true,
+    "id": 11720849
+  },
+  {
+    "type": 0,
+    "filter": "鬼子",
+    "opened": true,
+    "id": 11721001
+  },
+  {
+    "type": 0,
+    "filter": "考古",
+    "opened": true,
+    "id": 11724674
+  },
+  {
+    "type": 0,
+    "filter": "急死人",
+    "opened": true,
+    "id": 11743533
+  },
+  {
+    "type": 0,
+    "filter": "笨笨",
+    "opened": true,
+    "id": 11743538
+  },
+  {
+    "type": 0,
+    "filter": "太笨了",
+    "opened": true,
+    "id": 11743539
+  },
+  {
+    "type": 0,
+    "filter": "？？？",
+    "opened": true,
+    "id": 11743543
+  },
+  {
+    "type": 0,
+    "filter": "tm",
+    "opened": true,
+    "id": 11743546
+  },
+  {
+    "type": 0,
+    "filter": "血压拉满",
+    "opened": true,
+    "id": 11743548
+  },
+  {
+    "type": 0,
+    "filter": "血压上来",
+    "opened": true,
+    "id": 11743654
+  },
+  {
+    "type": 0,
+    "filter": "这还可以",
+    "opened": true,
+    "id": 11743661
+  },
+  {
+    "type": 0,
+    "filter": "这俩人这眼神",
+    "opened": true,
+    "id": 11743671
+  },
+  {
+    "type": 0,
+    "filter": "嘴不让说？",
+    "opened": true,
+    "id": 11743713
+  },
+  {
+    "type": 0,
+    "filter": "有冲刺不用非要跳.......",
+    "opened": true,
+    "id": 11744056
+  },
+  {
+    "type": 0,
+    "filter": "有点…",
+    "opened": true,
+    "id": 11744057
+  },
+  {
+    "type": 0,
+    "filter": "拉胯",
+    "opened": true,
+    "id": 11744061
+  },
+  {
+    "type": 0,
+    "filter": "背后就是墙啊，您可以上墙的啊···",
+    "opened": true,
+    "id": 11744068
+  },
+  {
+    "type": 0,
+    "filter": "背后的墙壁……",
+    "opened": true,
+    "id": 11744071
+  },
+  {
+    "type": 0,
+    "filter": "还要多亮才能提示你",
+    "opened": true,
+    "id": 11744073
+  },
+  {
+    "type": 0,
+    "filter": "没看到背后的吗",
+    "opened": true,
+    "id": 11744074
+  },
+  {
+    "type": 0,
+    "filter": "走墙啊",
+    "opened": true,
+    "id": 11744078
+  },
+  {
+    "type": 0,
+    "filter": "血压上去了",
+    "opened": true,
+    "id": 11744083
+  },
+  {
+    "type": 0,
+    "filter": "哎",
+    "opened": true,
+    "id": 11744085
+  },
+  {
+    "type": 0,
+    "filter": "这里确实有点蠢了",
+    "opened": true,
+    "id": 11744086
+  },
+  {
+    "type": 0,
+    "filter": "不适合解谜",
+    "opened": true,
+    "id": 11744090
+  },
+  {
+    "type": 0,
+    "filter": "真用心在玩了吗？",
+    "opened": true,
+    "id": 11744091
+  },
+  {
+    "type": 0,
+    "filter": "血压高起来",
+    "opened": true,
+    "id": 11744094
+  },
+  {
+    "type": 0,
+    "filter": "不要去考驾照",
+    "opened": true,
+    "id": 11744097
+  },
+  {
+    "type": 0,
+    "filter": "不要尝试去开各类飞行交通工具",
+    "opened": true,
+    "id": 11744100
+  },
+  {
+    "type": 0,
+    "filter": "菜的扣脚",
+    "opened": true,
+    "id": 11744103
+  },
+  {
+    "type": 0,
+    "filter": "这里都要靠弹幕啊",
+    "opened": true,
+    "id": 11744108
+  },
+  {
+    "type": 0,
+    "filter": "不看对方视角么分屏意义何在",
+    "opened": true,
+    "id": 11744133
+  },
+  {
+    "type": 0,
+    "filter": "知道你想维护，但确实有点离谱",
+    "opened": true,
+    "id": 11744137
+  },
+  {
+    "type": 0,
+    "filter": "降压药",
+    "opened": true,
+    "id": 11744141
+  },
+  {
+    "type": 0,
+    "filter": "高血压",
+    "opened": true,
+    "id": 11744808
+  },
+  {
+    "type": 0,
+    "filter": "科目四",
+    "opened": true,
+    "id": 12102732
+  },
+  {
+    "type": 0,
+    "filter": "唯物主义",
+    "opened": true,
+    "id": 12250431
+  },
+  {
+    "type": 0,
+    "filter": "blg",
+    "opened": true,
+    "id": 12257324
+  },
+  {
+    "type": 0,
+    "filter": "bin",
+    "opened": true,
+    "id": 12257328
+  },
+  {
+    "type": 0,
+    "filter": "犹太人",
+    "opened": true,
+    "id": 12303431
+  },
+  {
+    "type": 0,
+    "filter": "犹太",
+    "opened": true,
+    "id": 12309033
+  },
+  {
+    "type": 0,
+    "filter": "老外",
+    "opened": true,
+    "id": 12309034
+  },
+  {
+    "type": 0,
+    "filter": "私募",
+    "opened": true,
+    "id": 12310600
+  },
+  {
+    "type": 0,
+    "filter": "中国伟大",
+    "opened": true,
+    "id": 12332084
+  },
+  {
+    "type": 0,
+    "filter": "全华班",
+    "opened": true,
+    "id": 12543939
+  },
+  {
+    "type": 0,
+    "filter": "翻译",
+    "opened": true,
+    "id": 12546349
+  },
+  {
+    "type": 0,
+    "filter": "geng",
+    "opened": true,
+    "id": 12561698
+  },
+  {
+    "type": 0,
+    "filter": "gg",
+    "opened": true,
+    "id": 12561699
+  },
+  {
+    "type": 0,
+    "filter": "GEN",
+    "opened": true,
+    "id": 12561700
+  },
+  {
+    "type": 0,
+    "filter": "马赛克队",
+    "opened": true,
+    "id": 12575340
+  },
+  {
+    "type": 0,
+    "filter": "彈丸之地",
+    "opened": true,
+    "id": 12600144
+  },
+  {
+    "type": 0,
+    "filter": "工人阶级",
+    "opened": true,
+    "id": 12611018
+  },
+  {
+    "type": 0,
+    "filter": "/",
+    "opened": true,
+    "id": 12971711
+  },
+  {
+    "type": 0,
+    "filter": "22.",
+    "opened": true,
+    "id": 12971715
+  },
+  {
+    "type": 0,
+    "filter": "4.22",
+    "opened": true,
+    "id": 12971764
+  },
+  {
+    "type": 0,
+    "filter": "4.3",
+    "opened": true,
+    "id": 12971765
+  },
+  {
+    "type": 0,
+    "filter": "太自由",
+    "opened": true,
+    "id": 12994924
+  },
+  {
+    "type": 0,
+    "filter": "诗人握持",
+    "opened": true,
+    "id": 12997831
+  },
+  {
+    "type": 0,
+    "filter": "转人工",
+    "opened": true,
+    "id": 12997928
+  },
+  {
+    "type": 0,
+    "filter": "仁济",
+    "opened": true,
+    "id": 12998079
+  },
+  {
+    "type": 0,
+    "filter": "神人",
+    "opened": true,
+    "id": 12998081
+  },
+  {
+    "type": 0,
+    "filter": "逆天",
+    "opened": true,
+    "id": 12998294
+  },
+  {
+    "type": 0,
+    "filter": "人民",
+    "opened": true,
+    "id": 12998447
+  },
+  {
+    "type": 0,
+    "filter": "外国人人少",
+    "opened": true,
+    "id": 12998568
+  },
+  {
+    "type": 0,
+    "filter": "外国人少",
+    "opened": true,
+    "id": 12998640
+  },
+  {
+    "type": 0,
+    "filter": "外國人少",
+    "opened": true,
+    "id": 12998643
+  },
+  {
+    "type": 0,
+    "filter": "人机",
+    "opened": true,
+    "id": 13006679
+  },
+  {
+    "type": 0,
+    "filter": "韩国",
+    "opened": true,
+    "id": 13018017
+  },
+  {
+    "type": 0,
+    "filter": "夹带私货",
+    "opened": true,
+    "id": 13018518
+  },
+  {
+    "type": 0,
+    "filter": "繁体字",
+    "opened": true,
+    "id": 13045825
+  },
+  {
+    "type": 0,
+    "filter": "文化输出",
+    "opened": true,
+    "id": 13163598
+  },
+  {
+    "type": 0,
+    "filter": "入机",
+    "opened": true,
+    "id": 13176399
+  },
+  {
+    "type": 0,
+    "filter": "伏笔",
+    "opened": true,
+    "id": 13424858
+  },
+  {
+    "type": 0,
+    "filter": "唯物",
+    "opened": true,
+    "id": 13621848
+  },
+  {
+    "type": 0,
+    "filter": "那一天的犹豫犹豫起来",
+    "opened": true,
+    "id": 13636367
+  },
+  {
+    "type": 0,
+    "filter": "狗嘉",
+    "opened": true,
+    "id": 13789461
+  },
+  {
+    "type": 0,
+    "filter": "入党",
+    "opened": true,
+    "id": 13836716
+  },
+  {
+    "type": 0,
+    "filter": "霉国",
+    "opened": true,
+    "id": 13848550
+  },
+  {
+    "type": 0,
+    "filter": "米国",
+    "opened": true,
+    "id": 13848551
+  },
+  {
+    "type": 0,
+    "filter": "漂亮国",
+    "opened": true,
+    "id": 13848552
+  },
+  {
+    "type": 1,
+    "filter": "霰",
+    "opened": true,
+    "id": 10944071
+  },
+  {
+    "type": 1,
+    "filter": "霰弹枪",
+    "opened": true,
+    "id": 10944073
+  },
+  {
+    "type": 1,
+    "filter": "个人了$",
+    "opened": true,
+    "id": 10990315
+  },
+  {
+    "type": 1,
+    "filter": "\\d个人$",
+    "opened": true,
+    "id": 10990342
+  },
+  {
+    "type": 1,
+    "filter": "个人$",
+    "opened": true,
+    "id": 10990348
+  },
+  {
+    "type": 1,
+    "filter": "^快$",
+    "opened": true,
+    "id": 10990400
+  },
+  {
+    "type": 1,
+    "filter": "^沒錯%",
+    "opened": true,
+    "id": 10990401
+  },
+  {
+    "type": 1,
+    "filter": "^块$",
+    "opened": true,
+    "id": 10990406
+  },
+  {
+    "type": 1,
+    "filter": "^怂$",
+    "opened": true,
+    "id": 10990412
+  },
+  {
+    "type": 1,
+    "filter": "^我在$",
+    "opened": true,
+    "id": 10990428
+  },
+  {
+    "type": 1,
+    "filter": "^没错$",
+    "opened": true,
+    "id": 10990429
+  },
+  {
+    "type": 1,
+    "filter": "^有的$",
+    "opened": true,
+    "id": 10990432
+  },
+  {
+    "type": 1,
+    "filter": "^有人$",
+    "opened": true,
+    "id": 10990434
+  },
+  {
+    "type": 1,
+    "filter": "^。+$",
+    "opened": true,
+    "id": 10990445
+  },
+  {
+    "type": 1,
+    "filter": "^对对$",
+    "opened": true,
+    "id": 11004400
+  },
+  {
+    "type": 1,
+    "filter": "^有$",
+    "opened": true,
+    "id": 11035140
+  },
+  {
+    "type": 1,
+    "filter": "^正确",
+    "opened": true,
+    "id": 11038250
+  },
+  {
+    "type": 1,
+    "filter": "^政治正确$",
+    "opened": true,
+    "id": 11038262
+  },
+  {
+    "type": 1,
+    "filter": "这.+是人？",
+    "opened": true,
+    "id": 11061191
+  },
+  {
+    "type": 1,
+    "filter": "[智自只中实][文能动时][字翻][幕譯译]",
+    "opened": true,
+    "id": 11061349
+  },
+  {
+    "type": 1,
+    "filter": "量[詞词]破碎",
+    "opened": true,
+    "id": 11061351
+  },
+  {
+    "type": 1,
+    "filter": "有人[嗎吗]",
+    "opened": true,
+    "id": 11061353
+  },
+  {
+    "type": 1,
+    "filter": "熟练[的地]让人心疼",
+    "opened": true,
+    "id": 11061354
+  },
+  {
+    "type": 1,
+    "filter": "/抽象../",
+    "opened": true,
+    "id": 11061427
+  },
+  {
+    "type": 1,
+    "filter": "\\d++人",
+    "opened": true,
+    "id": 11309184
+  },
+  {
+    "type": 1,
+    "filter": "^1+",
+    "opened": true,
+    "id": 11309188
+  },
+  {
+    "type": 1,
+    "filter": ".[次遍]过",
+    "opened": true,
+    "id": 11309707
+  },
+  {
+    "type": 1,
+    "filter": ".月.号",
+    "opened": true,
+    "id": 11320796
+  },
+  {
+    "type": 1,
+    "filter": "^啊$",
+    "opened": true,
+    "id": 11320812
+  },
+  {
+    "type": 1,
+    "filter": "20\\d\\d",
+    "opened": true,
+    "id": 11320823
+  },
+  {
+    "type": 1,
+    "filter": "[戴带]孝女",
+    "opened": true,
+    "id": 11324896
+  },
+  {
+    "type": 1,
+    "filter": "T1",
+    "opened": true,
+    "id": 12257326
+  },
+  {
+    "type": 2,
+    "filter": "17dee87c",
+    "opened": true,
+    "id": 9670561
+  },
+  {
+    "type": 2,
+    "filter": "abc18042",
+    "opened": true,
+    "id": 9670568
+  },
+  {
+    "type": 2,
+    "filter": "e8b60e5f",
+    "opened": true,
+    "id": 9883524
+  },
+  {
+    "type": 2,
+    "filter": "70f54146",
+    "opened": true,
+    "id": 9883526
+  },
+  {
+    "type": 2,
+    "filter": "dd812e49",
+    "opened": true,
+    "id": 9883539
+  },
+  {
+    "type": 2,
+    "filter": "73da12c4",
+    "opened": true,
+    "id": 9883544
+  },
+  {
+    "type": 2,
+    "filter": "8f0f4f02",
+    "opened": true,
+    "id": 9883545
+  },
+  {
+    "type": 2,
+    "filter": "94deb899",
+    "opened": true,
+    "id": 9920685
+  },
+  {
+    "type": 2,
+    "filter": "735fd060",
+    "opened": true,
+    "id": 11315143
+  },
+  {
+    "type": 2,
+    "filter": "d755fad5",
+    "opened": true,
+    "id": 11744807
+  },
+  {
+    "type": 0,
+    "filter": "美爹",
+    "opened": true,
+    "id": 13907238
+  },
+  {
+    "type": 0,
+    "filter": "高市早苗",
+    "opened": true,
+    "id": 15653523
+  },
+  {
+    "type": 0,
+    "filter": "迷信",
+    "opened": true,
+    "id": 15653524
+  },
+  {
+    "type": 0,
+    "filter": "上海工厂",
+    "opened": true,
+    "id": 15653528
+  },
+  {
+    "type": 0,
+    "filter": "中国工厂",
+    "opened": true,
+    "id": 15653529
+  },
+  {
+    "type": 1,
+    "filter": "中",
+    "opened": true,
+    "id": 15653530
+  }
+]

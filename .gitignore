@@ -1,0 +1,20 @@
+# Large binaries exceeding GitHub limits
+*.exe
+*.dll
+
+# Sensitive user credentials and dynamic cache
+*cookies*
+portable_config/cookies.txt
+portable_config/cache/
+portable_config/watch_later/
+portable_config/sponsorblock_shared/
+portable_config/file_browser-last_opened_directory
+
+# Temporary files and python cache
+__pycache__/
+*.pyc
+*.part
+*.tmp
+*.log
+*.bgra
+mpv_btr_port*.txt
