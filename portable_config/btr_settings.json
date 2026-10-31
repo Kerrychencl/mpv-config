@@ -1,1 +1,1 @@
-{"osd_notify":true,"enabled":true,"cdn_mode":"auto","preferred_host":"auto","engine_mode":"direct","threads":32}
+{"live_acceleration":true,"osd_notify":true,"fallback_enabled":true,"current_tab":"network","enabled":true,"cdn_mode":"mainland","preferred_host":"auto","engine_mode":"ripper","threads":32,"auto_threads":true}

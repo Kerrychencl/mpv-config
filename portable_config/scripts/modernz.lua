@@ -226,8 +226,8 @@ local user_opts = {
 
     -- glass look (layout=default panel, menus, tooltips, thumbnails, window controls)
     glass_color = "#17181C",               -- tint of glass surfaces
-    glass_opacity = 38,                    -- tint strength in percent, from clear (0) to solid (100); at least 62 when the video behind can't be frosted
-    glass_border_opacity = 8,              -- opacity of the hairline light edge around glass surfaces in percent
+    glass_opacity = 10,                    -- tint strength in percent, from clear (0) to solid (100)
+    glass_border_opacity = 5,              -- opacity of the hairline light edge around glass surfaces in percent
     glass_shadow = true,                   -- soft shadow under glass surfaces
     glass_blur = true,                     -- blur the video behind glass surfaces (needs vo=gpu-next)
     glass_refraction = true,               -- bend the video near the rounded edges of glass surfaces like a lens and light their rims (with glass_blur)
@@ -325,10 +325,10 @@ local user_opts = {
     file_loop_mbtn_right_command = "osd-msg cycle-values loop-playlist inf no",
 
     -- speed button mouse actions
-    speed_mbtn_left_command = "osd-msg add speed 1",
-    speed_mbtn_right_command = "osd-msg set speed 1",
-    speed_wheel_down_command = "osd-msg add speed -0.25",
-    speed_wheel_up_command = "osd-msg add speed 0.25",
+    speed_mbtn_left_command = "script-binding modernz/speed_menu/toggle",
+    speed_mbtn_right_command = "script-binding modernz/speed_menu/reset",
+    speed_wheel_down_command = "script-binding modernz/speed_menu/step_down",
+    speed_wheel_up_command = "script-binding modernz/speed_menu/step_up",
 }
 
 local osc_param = {                  -- calculated by osc_init()
@@ -346,7 +346,8 @@ local osc_param = {                  -- calculated by osc_init()
 -- icon outlines: Fluent UI System Icons (MIT) and Material Symbols (Apache-2.0),
 -- converted from ModernZ's icon sources to ASS drawings on a 24x24 grid
 local icon_glyphs = {
-    ["danmaku"] = "m 2 5 b 2 3.89 2.89 3 4 3 l 20 3 b 21.11 3 22 3.89 22 5 l 22 15 b 22 16.11 21.11 17 20 17 l 7 17 l 3 21 l 3 17 l 4 17 b 2.89 17 2 16.11 2 15 l 2 5 m 6 7.5 l 18 7.5 l 18 9 l 6 9 m 9 10.5 l 18 10.5 l 18 12 l 9 12 m 6 13.5 l 14 13.5 l 14 15 l 6 15",
+    ["danmaku"] = "m 12 5 l 7 1.5 l 6.3 2.2 l 11.3 5.7 m 12 5 l 17 1.5 l 17.7 2.2 l 12.7 5.7 m 4.5 5.5 l 19.5 5.5 b 21.16 5.5 22.5 6.84 22.5 8.5 l 22.5 16.5 b 22.5 18.16 21.16 19.5 19.5 19.5 l 4.5 19.5 b 2.84 19.5 1.5 18.16 1.5 16.5 l 1.5 8.5 b 1.5 6.84 2.84 5.5 4.5 5.5 m 4.5 6.7 b 3.51 6.7 2.7 7.51 2.7 8.5 l 2.7 16.5 b 2.7 17.49 3.51 18.3 4.5 18.3 l 19.5 18.3 b 20.49 18.3 21.3 17.49 21.3 16.5 l 21.3 8.5 b 21.3 7.51 20.49 6.7 19.5 6.7 l 4.5 6.7 m 15.8 6.7 l 17 6.7 l 17 18.3 l 15.8 18.3 m 4.2 8.5 l 8.2 8.5 l 8.2 9.5 l 4.2 9.5 m 8.2 8.5 l 7.2 11.5 l 8.2 11.5 l 8.2 12.5 l 5.2 12.5 m 5.2 12 l 5.2 15.5 l 8 15.5 l 8 14.5 l 6.2 14.5 l 6.2 13 m 9.5 8.3 l 10.5 8.3 l 10.5 9.3 l 9.5 9.3 m 13.5 8.3 l 14.5 8.3 l 14.5 9.3 l 13.5 9.3 m 9.2 10 l 14.8 10 l 14.8 11 l 9.2 11 m 9.5 11.5 l 14.5 11.5 l 14.5 13.8 l 9.5 13.8 z m 10.5 12.5 l 13.5 12.5 l 13.5 12.8 l 10.5 12.8 m 11.5 10 l 12.5 10 l 12.5 16.5 l 11.5 16.5 m 9.5 15 l 14.5 15 l 14.5 15.9 l 9.5 15.9 m 19 8.5 b 19.55 8.5 20 8.95 20 9.5 b 20 10.05 19.55 10.5 19 10.5 b 18.45 10.5 18 10.05 18 9.5 b 18 8.95 18.45 8.5 19 8.5 m 18.5 12 l 19.5 12 l 19.5 12.8 l 20.3 13.1 l 21 12.5 l 21.7 13.2 l 21.1 13.9 l 21.4 14.7 l 22.2 14.7 l 22.2 15.7 l 21.4 15.7 l 21.1 16.5 l 21.7 17.2 l 21 17.9 l 20.3 17.3 l 19.5 17.6 l 19.5 18.4 l 18.5 18.4 l 18.5 17.6 l 17.7 17.3 l 17 17.9 l 16.3 17.2 l 16.9 16.5 l 16.6 15.7 l 15.8 15.7 l 15.8 14.7 l 16.6 14.7 l 16.9 13.9 l 16.3 13.2 l 17 12.5 l 17.7 13.1 l 18.5 12.8 z m 19 13.8 b 19.39 13.8 19.7 14.11 19.7 14.5 b 19.7 14.89 19.39 15.2 19 15.2 b 18.61 15.2 18.3 14.89 18.3 14.5 b 18.3 14.11 18.61 13.8 19 13.8 m 5.5 19.5 l 4 22.5 l 5.2 22.5 l 6.5 19.5 m 18.5 19.5 l 20 22.5 l 18.8 22.5 l 17.5 19.5",
+    ["menu_add_speed"] = "m 3 6 l 13 6 l 13 8 l 3 8 m 3 11 l 13 11 l 13 13 l 3 13 m 3 16 l 13 16 l 13 18 l 3 18 m 18 7 l 20 7 l 20 11 l 24 11 l 24 13 l 20 13 l 20 17 l 18 17 l 18 13 l 14 13 l 14 11 l 18 11",
 
     ["download"] = "m 12 16 l 7 11 8.4 9.55 11 12.15 11 4 13 4 13 12.15 15.6 9.55 17 11 12 16 m 6 20 b 5.45 20 4.98 19.8 4.59 19.41 4.2 19.02 4 18.55 4 18 l 4 15 6 15 6 18 18 18 18 15 20 15 20 18 b 20 18.55 19.8 19.02 19.41 19.41 19.02 19.8 18.55 20 18 20 l 6 20",
     ["downloading"] = "m 10.98 21.95 b 9.71 21.82 8.53 21.46 7.44 20.89 6.35 20.31 5.4 19.58 4.6 18.69 3.8 17.8 3.17 16.78 2.71 15.62 2.25 14.47 2.02 13.26 2.02 11.97 2.02 9.39 2.88 7.15 4.59 5.26 6.3 3.37 8.43 2.28 11 2 l 11 4 b 8.98 4.28 7.32 5.18 6 6.69 4.68 8.2 4.03 9.96 4.03 11.97 4.03 13.99 4.68 15.75 6 17.26 7.32 18.77 8.98 19.67 10.98 19.95 l 10.98 21.95 m 11.98 17 l 6.95 11.95 8.38 10.52 10.98 13.12 10.98 7 12.98 7 12.98 13.12 15.55 10.55 16.98 12 11.98 17 m 12.98 21.95 l 12.98 19.95 b 13.69 19.85 14.38 19.66 15.04 19.38 15.7 19.09 16.31 18.73 16.88 18.3 l 18.32 19.75 b 17.54 20.37 16.7 20.86 15.8 21.24 14.9 21.61 13.96 21.85 12.98 21.95 m 16.93 5.65 b 16.34 5.22 15.72 4.86 15.06 4.57 14.4 4.29 13.72 4.1 13 4 l 13 2 b 13.98 2.1 14.93 2.34 15.83 2.71 16.73 3.09 17.56 3.58 18.32 4.2 l 16.93 5.65 m 19.73 18.3 l 18.32 16.88 b 18.76 16.31 19.11 15.7 19.38 15.04 19.64 14.38 19.83 13.69 19.93 12.97 l 21.98 12.97 b 21.84 13.96 21.59 14.9 21.23 15.81 20.86 16.72 20.36 17.55 19.73 18.3 m 19.93 10.97 b 19.83 10.26 19.64 9.57 19.38 8.91 19.11 8.25 18.76 7.64 18.32 7.07 l 19.73 5.65 b 20.36 6.4 20.87 7.23 21.25 8.14 21.63 9.05 21.88 9.99 21.98 10.97 l 19.93 10.97",
@@ -471,8 +472,8 @@ local icon_glyphs = {
     ["skip_next_filled"] = "m 16.5 17 l 16.5 7 b 16.5 6.72 16.6 6.48 16.79 6.29 16.98 6.1 17.22 6 17.5 6 17.78 6 18.02 6.1 18.21 6.29 18.4 6.48 18.5 6.72 18.5 7 l 18.5 17 b 18.5 17.28 18.4 17.52 18.21 17.71 18.02 17.9 17.78 18 17.5 18 17.22 18 16.98 17.9 16.79 17.71 16.6 17.52 16.5 17.28 16.5 17 m 5.5 16.12 l 5.5 7.88 b 5.5 7.58 5.6 7.33 5.8 7.15 6 6.97 6.23 6.88 6.5 6.88 6.58 6.88 6.67 6.88 6.78 6.9 6.88 6.92 6.97 6.96 7.05 7.02 l 13.25 11.17 b 13.4 11.27 13.51 11.4 13.59 11.54 13.66 11.68 13.7 11.83 13.7 12 13.7 12.17 13.66 12.32 13.59 12.46 13.51 12.6 13.4 12.72 13.25 12.82 l 7.05 16.98 b 6.97 17.04 6.88 17.08 6.78 17.1 6.67 17.12 6.58 17.12 6.5 17.12 6.23 17.12 6 17.03 5.8 16.85 5.6 16.67 5.5 16.43 5.5 16.12",
     ["skip_previous"] = "m 5.5 17 l 5.5 7 b 5.5 6.72 5.6 6.48 5.79 6.29 5.98 6.1 6.22 6 6.5 6 6.78 6 7.02 6.1 7.21 6.29 7.4 6.48 7.5 6.72 7.5 7 l 7.5 17 b 7.5 17.28 7.4 17.52 7.21 17.71 7.02 17.9 6.78 18 6.5 18 6.22 18 5.98 17.9 5.79 17.71 5.6 17.52 5.5 17.28 5.5 17 m 16.95 16.98 l 10.75 12.82 b 10.6 12.72 10.49 12.6 10.41 12.46 10.34 12.32 10.3 12.17 10.3 12 10.3 11.83 10.34 11.68 10.41 11.54 10.49 11.4 10.6 11.27 10.75 11.17 l 16.95 7.02 b 17.03 6.96 17.12 6.92 17.23 6.9 17.32 6.88 17.42 6.88 17.5 6.88 17.77 6.88 18 6.97 18.2 7.15 18.4 7.33 18.5 7.58 18.5 7.88 l 18.5 16.12 b 18.5 16.43 18.4 16.67 18.2 16.85 18 17.03 17.77 17.12 17.5 17.12 17.42 17.12 17.32 17.12 17.23 17.1 17.12 17.08 17.03 17.04 16.95 16.98 m 16.5 14.25 l 16.5 9.75 13.1 12 16.5 14.25",
     ["skip_previous_filled"] = "m 5.5 17 l 5.5 7 b 5.5 6.72 5.6 6.48 5.79 6.29 5.98 6.1 6.22 6 6.5 6 6.78 6 7.02 6.1 7.21 6.29 7.4 6.48 7.5 6.72 7.5 7 l 7.5 17 b 7.5 17.28 7.4 17.52 7.21 17.71 7.02 17.9 6.78 18 6.5 18 6.22 18 5.98 17.9 5.79 17.71 5.6 17.52 5.5 17.28 5.5 17 m 16.95 16.98 l 10.75 12.82 b 10.6 12.72 10.49 12.6 10.41 12.46 10.34 12.32 10.3 12.17 10.3 12 10.3 11.83 10.34 11.68 10.41 11.54 10.49 11.4 10.6 11.27 10.75 11.17 l 16.95 7.02 b 17.03 6.96 17.12 6.92 17.23 6.9 17.32 6.88 17.42 6.88 17.5 6.88 17.77 6.88 18 6.97 18.2 7.15 18.4 7.33 18.5 7.58 18.5 7.88 l 18.5 16.12 b 18.5 16.43 18.4 16.67 18.2 16.85 18 17.03 17.77 17.12 17.5 17.12 17.42 17.12 17.32 17.12 17.23 17.1 17.12 17.08 17.03 17.04 16.95 16.98",
-    ["speed"] = "m 12 16.09 b 12.63 16.08 13.1 15.85 13.4 15.4 l 17.62 9.07 b 17.78 8.84 17.75 8.63 17.56 8.44 17.37 8.25 17.16 8.22 16.93 8.38 l 10.6 12.6 b 10.15 12.9 9.91 13.36 9.89 13.97 9.86 14.59 10.05 15.1 10.45 15.5 10.85 15.9 11.37 16.1 12 16.09 m 12 4 b 12.6 4 13.19 4.05 13.78 4.15 14.36 4.25 14.93 4.41 15.48 4.62 15.74 4.72 16.02 4.91 16.32 5.19 16.62 5.46 16.71 5.72 16.57 5.97 16.44 6.22 16.14 6.39 15.68 6.47 15.21 6.56 14.83 6.55 14.55 6.45 14.13 6.3 13.71 6.19 13.29 6.11 12.86 6.04 12.43 6 12 6 9.78 6 7.9 6.78 6.34 8.34 4.78 9.9 4 11.78 4 14 4 14.7 4.1 15.39 4.29 16.07 4.48 16.76 4.75 17.4 5.1 18 l 18.9 18 b 19.28 17.37 19.56 16.71 19.74 16.02 19.91 15.34 20 14.63 20 13.9 20 13.47 19.96 13.04 19.89 12.62 19.81 12.21 19.7 11.8 19.55 11.4 19.45 11.12 19.43 10.84 19.5 10.57 19.57 10.31 19.72 10.08 19.95 9.9 20.17 9.73 20.4 9.68 20.66 9.75 20.92 9.82 21.1 9.97 21.2 10.2 21.45 10.78 21.64 11.38 21.78 11.99 21.91 12.6 21.98 13.22 22 13.85 22.02 14.8 21.91 15.71 21.68 16.57 21.44 17.44 21.1 18.27 20.65 19.05 20.47 19.35 20.22 19.58 19.9 19.75 19.58 19.92 19.25 20 18.9 20 l 5.1 20 b 4.75 20 4.42 19.92 4.1 19.75 3.78 19.58 3.53 19.35 3.35 19.05 2.92 18.3 2.58 17.5 2.35 16.66 2.12 15.82 2 14.93 2 14 2 12.62 2.26 11.32 2.79 10.11 3.31 8.9 4.03 7.85 4.94 6.94 5.85 6.03 6.91 5.31 8.12 4.79 9.34 4.26 10.63 4 12 4",
-    ["speed_filled"] = "m 10.45 15.5 b 10.87 15.92 11.39 16.11 12.03 16.09 12.66 16.06 13.12 15.83 13.4 15.4 l 19 7 10.6 12.6 b 10.17 12.9 9.93 13.35 9.89 13.96 9.85 14.57 10.03 15.08 10.45 15.5 m 5.1 20 b 4.73 20 4.4 19.92 4.09 19.76 3.78 19.6 3.53 19.37 3.35 19.05 2.92 18.27 2.58 17.45 2.35 16.61 2.12 15.77 2 14.9 2 14 2 12.62 2.26 11.32 2.79 10.1 3.31 8.88 4.03 7.82 4.93 6.93 5.83 6.02 6.88 5.31 8.1 4.79 9.32 4.26 10.62 4 12 4 13.37 4 14.65 4.26 15.85 4.77 17.05 5.29 18.1 6 19 6.89 19.9 7.78 20.62 8.82 21.15 10.01 21.68 11.2 21.96 12.48 21.98 13.85 21.99 14.77 21.89 15.66 21.66 16.54 21.44 17.41 21.09 18.25 20.62 19.05 20.44 19.37 20.2 19.6 19.89 19.76 19.58 19.92 19.24 20 18.88 20 l 5.1 20",
+    ["speed"] = "m 12 2.5 b 6.75 2.5 2.5 6.75 2.5 12 b 2.5 17.25 6.75 21.5 12 21.5 b 17.25 21.5 21.5 17.25 21.5 12 b 21.5 6.75 17.25 2.5 12 2.5 m 12 4.2 b 16.31 4.2 19.8 7.69 19.8 12 b 19.8 16.31 16.31 19.8 12 19.8 b 7.69 19.8 4.2 16.31 4.2 12 b 4.2 7.69 7.69 4.2 12 4.2 m 5 11.3 l 7.5 11.3 l 7.5 12.7 l 5 12.7 m 6.8 6.8 l 8.6 8.6 l 7.6 9.6 l 5.8 7.8 m 11.3 5 l 12.7 5 l 12.7 7.5 l 11.3 7.5 m 17.2 6.8 l 15.4 8.6 l 16.4 9.6 l 18.2 7.8 m 19 11.3 l 16.5 11.3 l 16.5 12.7 l 19 12.7 m 12 10.3 b 12.94 10.3 13.7 11.06 13.7 12 b 13.7 12.94 12.94 13.7 12 13.7 b 11.06 13.7 10.3 12.94 10.3 12 b 10.3 11.06 11.06 10.3 12 10.3 m 11.4 12.6 l 16.8 7.2 b 17.2 6.8 17.7 7.3 17.3 7.7 l 12.6 13.1 m 7 15.5 b 8.3 16.7 10 17.5 12 17.5 b 14 17.5 15.7 16.7 17 15.5 l 16 14.5 b 14.9 15.5 13.5 16.1 12 16.1 b 10.5 16.1 9.1 15.5 8 14.5 z",
+    ["speed_filled"] = "m 12 2.5 b 6.75 2.5 2.5 6.75 2.5 12 b 2.5 17.25 6.75 21.5 12 21.5 b 17.25 21.5 21.5 17.25 21.5 12 b 21.5 6.75 17.25 2.5 12 2.5 m 12 4.2 b 16.31 4.2 19.8 7.69 19.8 12 b 19.8 16.31 16.31 19.8 12 19.8 b 7.69 19.8 4.2 16.31 4.2 12 b 4.2 7.69 7.69 4.2 12 4.2 m 5 11.3 l 7.5 11.3 l 7.5 12.7 l 5 12.7 m 6.8 6.8 l 8.6 8.6 l 7.6 9.6 l 5.8 7.8 m 11.3 5 l 12.7 5 l 12.7 7.5 l 11.3 7.5 m 17.2 6.8 l 15.4 8.6 l 16.4 9.6 l 18.2 7.8 m 19 11.3 l 16.5 11.3 l 16.5 12.7 l 19 12.7 m 12 10.3 b 12.94 10.3 13.7 11.06 13.7 12 b 13.7 12.94 12.94 13.7 12 13.7 b 11.06 13.7 10.3 12.94 10.3 12 b 10.3 11.06 11.06 10.3 12 10.3 m 11.4 12.6 l 16.8 7.2 b 17.2 6.8 17.7 7.3 17.3 7.7 l 12.6 13.1 m 7 15.5 b 8.3 16.7 10 17.5 12 17.5 b 14 17.5 15.7 16.7 17 15.5 l 16 14.5 b 14.9 15.5 13.5 16.1 12 16.1 b 10.5 16.1 9.1 15.5 8 14.5 z",
     ["subtitles"] = "m 4 20 b 3.45 20 2.98 19.8 2.59 19.41 2.2 19.02 2 18.55 2 18 l 2 6 b 2 5.45 2.2 4.98 2.59 4.59 2.98 4.2 3.45 4 4 4 l 20 4 b 20.55 4 21.02 4.2 21.41 4.59 21.8 4.98 22 5.45 22 6 l 22 18 b 22 18.55 21.8 19.02 21.41 19.41 21.02 19.8 20.55 20 20 20 l 4 20 m 4 18 l 20 18 20 6 4 6 4 18 m 4 18 l 4 6 4 18 m 7 16 l 13 16 b 13.28 16 13.52 15.9 13.71 15.71 13.9 15.52 14 15.28 14 15 14 14.72 13.9 14.48 13.71 14.29 13.52 14.1 13.28 14 13 14 l 7 14 b 6.72 14 6.48 14.1 6.29 14.29 6.1 14.48 6 14.72 6 15 6 15.28 6.1 15.52 6.29 15.71 6.48 15.9 6.72 16 7 16 m 11 12 l 17 12 b 17.28 12 17.52 11.9 17.71 11.71 17.9 11.52 18 11.28 18 11 18 10.72 17.9 10.48 17.71 10.29 17.52 10.1 17.28 10 17 10 l 11 10 b 10.72 10 10.48 10.1 10.29 10.29 10.1 10.48 10 10.72 10 11 10 11.28 10.1 11.52 10.29 11.71 10.48 11.9 10.72 12 11 12 m 7.71 11.71 b 7.9 11.52 8 11.28 8 11 8 10.72 7.9 10.48 7.71 10.29 7.52 10.1 7.28 10 7 10 6.72 10 6.48 10.1 6.29 10.29 6.1 10.48 6 10.72 6 11 6 11.28 6.1 11.52 6.29 11.71 6.48 11.9 6.72 12 7 12 7.28 12 7.52 11.9 7.71 11.71 m 17.71 15.71 b 17.9 15.52 18 15.28 18 15 18 14.72 17.9 14.48 17.71 14.29 17.52 14.1 17.28 14 17 14 16.72 14 16.48 14.1 16.29 14.29 16.1 14.48 16 14.72 16 15 16 15.28 16.1 15.52 16.29 15.71 16.48 15.9 16.72 16 17 16 17.28 16 17.52 15.9 17.71 15.71",
     ["subtitles_filled"] = "m 4 20 b 3.45 20 2.98 19.8 2.59 19.41 2.2 19.02 2 18.55 2 18 l 2 6 b 2 5.45 2.2 4.98 2.59 4.59 2.98 4.2 3.45 4 4 4 l 20 4 b 20.55 4 21.02 4.2 21.41 4.59 21.8 4.98 22 5.45 22 6 l 22 18 b 22 18.55 21.8 19.02 21.41 19.41 21.02 19.8 20.55 20 20 20 l 4 20 m 7 16 l 13 16 b 13.28 16 13.52 15.9 13.71 15.71 13.9 15.52 14 15.28 14 15 14 14.72 13.9 14.48 13.71 14.29 13.52 14.1 13.28 14 13 14 l 7 14 b 6.72 14 6.48 14.1 6.29 14.29 6.1 14.48 6 14.72 6 15 6 15.28 6.1 15.52 6.29 15.71 6.48 15.9 6.72 16 7 16 m 11 12 l 17 12 b 17.28 12 17.52 11.9 17.71 11.71 17.9 11.52 18 11.28 18 11 18 10.72 17.9 10.48 17.71 10.29 17.52 10.1 17.28 10 17 10 l 11 10 b 10.72 10 10.48 10.1 10.29 10.29 10.1 10.48 10 10.72 10 11 10 11.28 10.1 11.52 10.29 11.71 10.48 11.9 10.72 12 11 12 m 7.71 11.71 b 7.9 11.52 8 11.28 8 11 8 10.72 7.9 10.48 7.71 10.29 7.52 10.1 7.28 10 7 10 6.72 10 6.48 10.1 6.29 10.29 6.1 10.48 6 10.72 6 11 6 11.28 6.1 11.52 6.29 11.71 6.48 11.9 6.72 12 7 12 7.28 12 7.52 11.9 7.71 11.71 m 17.71 15.71 b 17.9 15.52 18 15.28 18 15 18 14.72 17.9 14.48 17.71 14.29 17.52 14.1 17.28 14 17 14 16.72 14 16.48 14.1 16.29 14.29 16.1 14.48 16 14.72 16 15 16 15.28 16.1 15.52 16.29 15.71 16.48 15.9 16.72 16 17 16 17.28 16 17.52 15.9 17.71 15.71",
     ["surround_sound"] = "m 14.12 14.12 b 14.71 13.54 15 12.83 15 12 15 11.17 14.71 10.46 14.12 9.88 13.54 9.29 12.83 9 12 9 11.17 9 10.46 9.29 9.88 9.88 9.29 10.46 9 11.17 9 12 9 12.83 9.29 13.54 9.88 14.12 10.46 14.71 11.17 15 12 15 12.83 15 13.54 14.71 14.12 14.12 m 17 12 b 17 12.5 16.93 12.98 16.8 13.45 16.67 13.92 16.46 14.36 16.18 14.78 16.03 15.01 15.95 15.27 15.96 15.55 15.97 15.83 16.07 16.07 16.25 16.25 16.45 16.45 16.68 16.55 16.95 16.54 17.22 16.53 17.43 16.42 17.6 16.2 18.05 15.6 18.4 14.94 18.64 14.22 18.88 13.51 19 12.77 19 12 19 11.23 18.88 10.49 18.64 9.77 18.4 9.06 18.05 8.4 17.6 7.8 17.43 7.58 17.22 7.47 16.95 7.46 16.68 7.45 16.45 7.55 16.25 7.75 16.07 7.93 15.97 8.17 15.96 8.45 15.95 8.73 16.03 8.99 16.18 9.22 16.46 9.64 16.67 10.08 16.8 10.55 16.93 11.02 17 11.5 17 12 m 7.2 10.55 b 7.33 10.08 7.54 9.64 7.83 9.22 7.98 8.99 8.05 8.73 8.04 8.45 8.03 8.17 7.93 7.93 7.75 7.75 7.55 7.55 7.32 7.45 7.05 7.46 6.78 7.47 6.57 7.58 6.4 7.8 5.95 8.4 5.6 9.06 5.36 9.77 5.12 10.49 5 11.23 5 12 5 12.77 5.12 13.51 5.36 14.22 5.6 14.94 5.95 15.6 6.4 16.2 6.57 16.42 6.78 16.53 7.05 16.54 7.32 16.55 7.55 16.45 7.75 16.25 7.93 16.07 8.03 15.83 8.04 15.55 8.05 15.27 7.98 15.01 7.83 14.78 7.54 14.36 7.33 13.92 7.2 13.45 7.07 12.98 7 12.5 7 12 7 11.5 7.07 11.02 7.2 10.55 m 4 20 b 3.45 20 2.98 19.8 2.59 19.41 2.2 19.02 2 18.55 2 18 l 2 6 b 2 5.45 2.2 4.98 2.59 4.59 2.98 4.2 3.45 4 4 4 l 20 4 b 20.55 4 21.02 4.2 21.41 4.59 21.8 4.98 22 5.45 22 6 l 22 18 b 22 18.55 21.8 19.02 21.41 19.41 21.02 19.8 20.55 20 20 20 l 4 20 m 4 18 l 20 18 20 6 4 6 4 18 m 4 18 l 4 6 4 18",
@@ -492,6 +493,7 @@ local icon_glyphs = {
 }
 local icon_names = {
     ["danmaku"] = "danmaku",
+    ["menu_add_speed"] = "menu_add_speed",
 
     ["fluent_download"] = "fluent_arrow_download",
     ["fluent_download_filled"] = "fluent_arrow_download_filled",
@@ -713,6 +715,7 @@ local function build_icons(theme_name, style)
 
     return {
         check    = icon_marker("menu_check"),
+        add_speed = icon_marker("menu_add_speed"),
         more     = icon_marker("menu_more"),
         chevron  = icon_marker("menu_chevron"),
         back     = icon_marker("menu_back"),
@@ -774,63 +777,63 @@ end
 --- localization
 local language = {
     ["default"] = {
-        idle = "Drop files or URLs here to play",
-        na = "Not available",
-        unknown = "Unknown",
-        video = "Video",
-        audio = "Audio",
-        subtitle = "Subtitle",
-        no_subs = "No subtitles",
-        no_audio = "No audio tracks",
-        volume = "Volume",
-        muted = "Muted",
-        playlist = "Playlist",
-        no_playlist = "Playlist empty",
-        chapter = "Chapter",
-        fullscreen = "Fullscreen",
-        fullscreen_exit = "Exit fullscreen",
-        ontop = "Pin window",
-        ontop_disable = "Unpin window",
-        file_loop_enable = "Loop file on",
-        file_loop_disable = "Loop file off",
-        playlist_loop_enable = "Loop playlist on",
-        playlist_loop_disable = "Loop playlist off",
-        shuffle = "Shuffle playlist on",
-        unshuffle = "Shuffle playlist off",
-        speed_control = "Playback speed",
-        screenshot = "Screenshot",
-        stats_info = "Statistics",
-        cache = "Cache",
-        buffering = "Buffering",
-        zoom_in = "Zoom in",
-        zoom_out = "Zoom out",
-        download = "Download",
-        download_in_progress = "Download in progress",
-        downloading = "Downloading",
-        downloaded = "Already downloaded",
-        menu = "Menu",
-        more = "More",
-        normal = "Normal",
-        loop = "Loop",
-        shuffle_menu = "Shuffle",
-        keep_on_top = "Keep on top",
-        subtitles = "Subtitles",
-        chapters = "Chapters",
-        audio_output = "Audio output",
-        off = "Off",
-        track = "Track",
-        default_track = "Default",
-        forced = "Forced",
-        external = "External",
-        other_folders = "Other folders",
-        browse_folders = "Browse folders",
-        up_one_level = "Up one level",
-        nothing_here = "Nothing to play here",
-        playing = "Playing",
-        play = "Play",
-        pause = "Pause",
-        replay = "Replay",
-        quit = "Quit",
+        idle = "拖放檔案或網址至此播放",
+        na = "無法使用",
+        unknown = "未知",
+        video = "視訊",
+        audio = "音訊",
+        subtitle = "字幕",
+        no_subs = "無字幕",
+        no_audio = "無音軌",
+        volume = "音量",
+        muted = "已靜音",
+        playlist = "播放清單",
+        no_playlist = "播放清單為空",
+        chapter = "章節",
+        fullscreen = "全螢幕",
+        fullscreen_exit = "結束全螢幕",
+        ontop = "視窗置頂",
+        ontop_disable = "取消置頂",
+        file_loop_enable = "單曲循環開",
+        file_loop_disable = "單曲循環關",
+        playlist_loop_enable = "清單循環開",
+        playlist_loop_disable = "清單循環關",
+        shuffle = "隨機播放開",
+        unshuffle = "隨機播放關",
+        speed_control = "倍速播放",
+        screenshot = "螢幕截圖",
+        stats_info = "詳細統計",
+        cache = "快取",
+        buffering = "緩衝中",
+        zoom_in = "放大",
+        zoom_out = "縮小",
+        download = "下載影片",
+        download_in_progress = "下載進行中",
+        downloading = "正在下載",
+        downloaded = "已下載過",
+        menu = "選單",
+        more = "更多功能",
+        normal = "1.0× (標準)",
+        loop = "循環播放",
+        shuffle_menu = "隨機播放",
+        keep_on_top = "視窗置頂",
+        subtitles = "字幕列表",
+        chapters = "章節列表",
+        audio_output = "音訊輸出裝置",
+        off = "關閉",
+        track = "軌道",
+        default_track = "預設",
+        forced = "強制",
+        external = "外掛",
+        other_folders = "其他資料夾",
+        browse_folders = "瀏覽資料夾",
+        up_one_level = "返回上一層",
+        nothing_here = "此處無可播放內容",
+        playing = "播放中",
+        play = "播放",
+        pause = "暫停",
+        replay = "重新播放",
+        quit = "結束",
     },
 }
 
@@ -953,7 +956,16 @@ local is_december = os.date("*t").month == 12
 local UNICODE_MINUS = string.char(0xe2, 0x88, 0x92)  -- UTF-8 for U+2212 MINUS SIGN
 
 local function osc_color_convert(color)
-    return color:sub(6,7) .. color:sub(4,5) ..  color:sub(2,3)
+    if not color or type(color) ~= "string" then return "FFFFFF" end
+    local hex = color:gsub("^#", ""):gsub("^&[Hh]", ""):gsub("&$", "")
+    if #hex == 6 then
+        local r, g, b = hex:sub(1,2), hex:sub(3,4), hex:sub(5,6)
+        return b .. g .. r
+    elseif #hex == 3 then
+        local r, g, b = hex:sub(1,1), hex:sub(2,2), hex:sub(3,3)
+        return b .. b .. g .. g .. r .. r
+    end
+    return hex
 end
 
 local osc_styles
@@ -1021,6 +1033,7 @@ local function set_osc_styles()
         glass_chapter = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.muted_text_color) .. "&\\fs" .. user_opts.chapter_title_font_size .. "\\q2\\fn" .. ui_font.regular .. "}",
         glass_time = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.time_color) .. "&\\fs" .. user_opts.time_font_size .. "\\fn" .. ui_font.medium .. ui_font.medium_b .. "}",
         glass_text = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\fs" .. user_opts.speed_font_size .. "\\fn" .. ui_font.medium .. ui_font.medium_b .. "}",
+        glass_speed = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\fs15\\b1\\fnMicrosoft JhengHei}",
         glass_cache = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.cache_info_color) .. "&\\fs" .. user_opts.cache_info_font_size .. "\\fn" .. ui_font.regular .. "}",
         glass_window_control = "{\\1c&H" .. osc_color_convert(user_opts.window_controls_color) .. "&\\fs18}",
         glass_play = "{\\1c&H" .. osc_color_convert(user_opts.playpause_color) .. "&\\fs30}",
@@ -1104,6 +1117,8 @@ local state = {
     persistent_progress_toggle = user_opts.persistent_progress,
     user_subpos = mp.get_property_number("sub-pos") or 100,
     osc_adjusted_subpos = nil,
+    user_sub_margin_y = mp.get_property_number("sub-margin-y") or 0,
+    osc_adjusted_sub_margin_y = nil,
     is_image = false,
     is_url = false,
     url_path = "",                           -- used for yt-dlp downloading
@@ -1888,7 +1903,7 @@ local function glass_blur_update(rects)
         kv.mzg_unit = string.format("%.6f", sy / vh)
         kv.mzg_lens = glass_look.refraction and "1" or "0"
         kv.mzg_shadow = user_opts.glass_shadow and "1" or "0"
-        kv.mzg_tone = "1"
+        kv.mzg_tone = "0.15"
         for i = 0, 3 do
             local r = rects[i + 1]
             local p = "mzg_" .. i
@@ -1986,7 +2001,7 @@ end
 
 local function glass_fill_alpha(min_opacity)
     local opacity = glass_look.opacity
-    if not glass_blur_active() then opacity = math.max(opacity, 62) end
+    if not glass_blur_active() then opacity = math.max(opacity, 10) end
     return opacity_alpha(math.max(opacity, min_opacity or 0))
 end
 
@@ -2059,6 +2074,10 @@ local function reset_margins()
         mp.set_property_number("sub-pos", state.user_subpos)
         state.osc_adjusted_subpos = nil
     end
+    if state.osc_adjusted_sub_margin_y ~= nil then
+        mp.set_property_number("sub-margin-y", state.user_sub_margin_y or 0)
+        state.osc_adjusted_sub_margin_y = nil
+    end
     set_margin_offset("osd-margin-y", 0)
 end
 
@@ -2087,11 +2106,23 @@ local function update_margins()
                 -- sub pos is high; do nothing
                 state.osc_adjusted_subpos = nil
             end
+
+            -- Also lift ASS/image/text subtitles using sub-margin-y
+            local H = (osc_param.unscaled_y and osc_param.unscaled_y > 0) and osc_param.unscaled_y or ((state.osd_dimensions and state.osd_dimensions.h) or 720)
+            local osc_bar_h = math.floor(margins.b * H + 0.5)
+            if osc_bar_h > 0 then
+                state.osc_adjusted_sub_margin_y = (state.user_sub_margin_y or 0) + osc_bar_h
+                mp.set_property_number("sub-margin-y", state.osc_adjusted_sub_margin_y)
+            end
         else
             -- restore original sub position
             if state.osc_adjusted_subpos ~= nil then
                 mp.set_property_number("sub-pos", state.user_subpos)
                 state.osc_adjusted_subpos = nil
+            end
+            if state.osc_adjusted_sub_margin_y ~= nil then
+                mp.set_property_number("sub-margin-y", state.user_sub_margin_y or 0)
+                state.osc_adjusted_sub_margin_y = nil
             end
         end
     end
@@ -2605,6 +2636,61 @@ local function draw_ab_loop_range(element, elem_ass)
     elem_ass:rect_cw(ax, slider_lo.gap, bx, elem_geo.h - slider_lo.gap)
 end
 
+-- show visual indicator for SponsorBlock segments (YouTube & Bilibili)
+local function draw_sponsorblock_ranges(element, elem_ass)
+    if element.name ~= "seekbar" then return end
+    local dur = state.duration or mp.get_property_number("duration") or 0
+    if dur <= 0 then return end
+
+    local segs = mp.get_property_native("user-data/sponsorblock/segments")
+    if not segs or type(segs) ~= "table" or #segs == 0 then return end
+
+    local slider_lo = element.layout.slider
+    local elem_geo = element.layout.geometry
+    local radius = slider_lo.radius or 0
+    local pstart = get_slider_ele_pos_for(element, 0)
+    local pend = get_slider_ele_pos_for(element, 100)
+    local gap_half = (slider_lo.nibbles_style == "gap") and 1.5 or 0
+    local cuts = (gap_half > 0) and collect_gap_cuts(element) or {}
+
+    for _, seg in ipairs(segs) do
+        local st = tonumber(seg.start or seg.start_time) or 0
+        local et = tonumber(seg["end"] or seg.end_time) or 0
+        local color = seg.color or "#00D482"
+        if et > st and st < dur then
+            local ax = get_slider_ele_pos_for(element, math.max(0, st) / dur * 100)
+            local bx = get_slider_ele_pos_for(element, math.min(dur, et) / dur * 100)
+            if bx > ax then
+                begin_draw_layer(element, elem_ass, color)
+                local seg_start = ax
+                for _, cut in ipairs(cuts) do
+                    if cut > ax and cut < bx then
+                        local seg_end = cut - gap_half
+                        if seg_end > seg_start then
+                            local rl = (seg_start <= pstart + 1) and radius or 0
+                            elem_ass:round_rect_cw(seg_start, slider_lo.gap, seg_end, elem_geo.h - slider_lo.gap, rl, 0)
+                        end
+                        seg_start = cut + gap_half
+                    end
+                end
+                if bx > seg_start then
+                    local rl = (seg_start <= pstart + 1) and radius or 0
+                    local rr = (bx >= pend - 1) and radius or 0
+                    if rl > 0 or rr > 0 then
+                        elem_ass:round_rect_cw(seg_start, slider_lo.gap, bx, elem_geo.h - slider_lo.gap, rl, rr)
+                    else
+                        elem_ass:rect_cw(seg_start, slider_lo.gap, bx, elem_geo.h - slider_lo.gap)
+                    end
+                end
+            end
+        elseif et == st and seg.action == "poi" and st < dur then
+            local px = get_slider_ele_pos_for(element, st / dur * 100)
+            begin_draw_layer(element, elem_ass, color)
+            elem_ass:rect_cw(px - 1.5, slider_lo.gap - 2, px + 1.5, elem_geo.h - slider_lo.gap + 2)
+        end
+    end
+end
+
 local function draw_seekbar_nibbles(element, elem_ass)
     local slider_lo = element.layout.slider
     local elem_geo = element.layout.geometry
@@ -2846,6 +2932,7 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                 draw_seekbar_progress(element, elem_ass)
                 draw_seekbar_ranges(element, elem_ass, handle_x, handle_radius)
                 draw_ab_loop_range(element, elem_ass)
+                draw_sponsorblock_ranges(element, elem_ass)
                 draw_seekbar_handle(element, elem_ass, handle_x, handle_radius, anim_override, is_active) -- draw handle on top of progress
 
                 elem_ass:draw_stop()
@@ -2889,10 +2976,29 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                             if element.name == "seekbar" and user_opts.chapter_fmt ~= "no" then
                                 local dur = state.duration or 0
                                 if dur > 0 then
-                                    local ch = get_chapter(sliderpos * dur / 100)
-                                    if ch and ch.title and ch.title ~= "" then
-                                        chapter_text = string.format(user_opts.chapter_fmt, ch.title)
+                                    local hpos = sliderpos * dur / 100
+                                    local sb_segs = mp.get_property_native("user-data/sponsorblock/segments")
+                                    local sb_hit = nil
+                                    if sb_segs and type(sb_segs) == "table" then
+                                        for _, s in ipairs(sb_segs) do
+                                            local st = tonumber(s.start or s.start_time) or 0
+                                            local et = tonumber(s["end"] or s.end_time) or 0
+                                            if et > st and hpos >= st and hpos <= et then
+                                                sb_hit = s
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if sb_hit then
+                                        local prefix = sb_hit.skip and "[跳過] " or "[標記] "
+                                        chapter_text = prefix .. (sb_hit.name or "贊助廣告")
                                         chapter_width = estimate_text_width(chapter_text, slider_lo.tooltip_style)
+                                    else
+                                        local ch = get_chapter(hpos)
+                                        if ch and ch.title and ch.title ~= "" then
+                                            chapter_text = string.format(user_opts.chapter_fmt, ch.title)
+                                            chapter_width = estimate_text_width(chapter_text, slider_lo.tooltip_style)
+                                        end
                                     end
                                 end
                             end
@@ -3095,32 +3201,33 @@ end
 local menu = nil          -- the open menu: {kind, title, items, anchor, scroll, hover, pressed, back, t0, geo}
 local menu_closing = nil  -- a menu fading away after it was closed
 local menu_frame = 0      -- bumped once per render, so a menu's geometry is worked out once per frame
-local close_menu, open_menu, render_menu, menu_event, menu_visual_rect, menu_covers_sync, menu_cover_ready
+local close_menu, open_menu, render_menu, menu_event, menu_visual_rect, menu_covers_sync, menu_cover_ready, speed_label, adjust_speed, SPEEDS, prompt_custom_speed, add_custom_speed, load_speed_presets, save_speed_presets
 do -- (in a block: the main chunk is close to Lua's limit of 200 locals)
 
 local MENU = {row_h = 32, sep_h = 9, header_h = 32, pad = 7, radius = 24, fs = 14, meta_fs = 12.5, title_fs = 12.5, glyph = 16, icon = 18}
 
 local lang_names = {
-    en = "English", eng = "English", ja = "Japanese", jpn = "Japanese", es = "Spanish", spa = "Spanish",
-    fr = "French", fre = "French", fra = "French", de = "German", ger = "German", deu = "German",
-    it = "Italian", ita = "Italian", pt = "Portuguese", por = "Portuguese", ru = "Russian", rus = "Russian",
-    zh = "Chinese", chi = "Chinese", zho = "Chinese", ko = "Korean", kor = "Korean", ar = "Arabic", ara = "Arabic",
-    hi = "Hindi", hin = "Hindi", nl = "Dutch", dut = "Dutch", nld = "Dutch", sv = "Swedish", swe = "Swedish",
-    no = "Norwegian", nor = "Norwegian", da = "Danish", dan = "Danish", fi = "Finnish", fin = "Finnish",
-    pl = "Polish", pol = "Polish", tr = "Turkish", tur = "Turkish", el = "Greek", gre = "Greek", ell = "Greek",
-    he = "Hebrew", heb = "Hebrew", th = "Thai", tha = "Thai", vi = "Vietnamese", vie = "Vietnamese",
-    id = "Indonesian", ind = "Indonesian", ms = "Malay", may = "Malay", msa = "Malay", uk = "Ukrainian",
-    ukr = "Ukrainian", cs = "Czech", cze = "Czech", ces = "Czech", hu = "Hungarian", hun = "Hungarian",
-    ro = "Romanian", rum = "Romanian", ron = "Romanian", fa = "Persian", per = "Persian", fas = "Persian",
-    bn = "Bengali", ben = "Bengali", ta = "Tamil", tam = "Tamil", te = "Telugu", tel = "Telugu",
-    tl = "Tagalog", tgl = "Tagalog", fil = "Filipino", ca = "Catalan", cat = "Catalan",
+    en = "英文", eng = "英文", ja = "日文", jpn = "日文", es = "西班牙文", spa = "西班牙文",
+    fr = "法文", fre = "法文", fra = "法文", de = "德文", ger = "德文", deu = "德文",
+    it = "義大利文", ita = "義大利文", pt = "葡萄牙文", por = "葡萄牙文", ru = "俄文", rus = "俄文",
+    zh = "中文", chi = "中文", zho = "中文", cmn = "國語/普通話", yue = "粵語",
+    ko = "韓文", kor = "韓文", ar = "阿拉伯文", ara = "阿拉伯文",
+    hi = "印地文", hin = "印地文", nl = "荷蘭文", dut = "荷蘭文", nld = "荷蘭文", sv = "瑞典文", swe = "瑞典文",
+    no = "挪威文", nor = "挪威文", da = "丹麥文", dan = "丹麥文", fi = "芬蘭文", fin = "芬蘭文",
+    pl = "波蘭文", pol = "波蘭文", tr = "土耳其文", tur = "土耳其文", el = "希臘文", gre = "希臘文", ell = "希臘文",
+    he = "希伯來文", heb = "希伯來文", th = "泰文", tha = "泰文", vi = "越南文", vie = "越南文",
+    id = "印尼文", ind = "印尼文", ms = "馬來文", may = "馬來文", msa = "馬來文", uk = "烏克蘭文",
+    ukr = "烏克蘭文", cs = "捷克文", cze = "捷克文", ces = "捷克文", hu = "匈牙利文", hun = "匈牙利文",
+    ro = "羅馬尼亞文", rum = "羅馬尼亞文", ron = "羅馬尼亞文", fa = "波斯文", per = "波斯文", fas = "波斯文",
+    bn = "孟加拉文", ben = "孟加拉文", ta = "坦米爾文", tam = "坦米爾文", te = "泰盧固文", tel = "泰盧固文",
+    tl = "他加祿文", tgl = "他加祿文", fil = "菲律賓文", ca = "加泰隆尼亞文", cat = "加泰隆尼亞文",
 }
 
 local codec_names = {
     eac3 = "E-AC-3", ac3 = "AC-3", aac = "AAC", opus = "Opus", flac = "FLAC", truehd = "TrueHD", dts = "DTS",
     mp3 = "MP3", vorbis = "Vorbis", alac = "ALAC", mp2 = "MP2", pcm_s16le = "PCM", pcm_s24le = "PCM",
     ass = "ASS", ssa = "SSA", subrip = "SRT", srt = "SRT", hdmv_pgs_subtitle = "PGS", pgssub = "PGS",
-    webvtt = "WebVTT", dvd_subtitle = "VobSub", dvdsub = "VobSub", mov_text = "Text", text = "Text",
+    webvtt = "WebVTT", dvd_subtitle = "VobSub", dvdsub = "VobSub", mov_text = "純文字", text = "純文字",
 }
 
 local function lang_name(code)
@@ -3130,7 +3237,7 @@ end
 
 local function channel_name(n)
     if not n or n <= 0 then return nil end
-    return ({"Mono", "Stereo", "3.0", "4.0", "5.0", "5.1", "6.1", "7.1"})[n] or (n .. " ch")
+    return ({"單聲道", "立體聲", "3.0 聲道", "4.0 聲道", "5.0 聲道", "5.1 聲道", "6.1 聲道", "7.1 聲道"})[n] or (n .. " 聲道")
 end
 
 local function plain_time(sec)
@@ -3143,17 +3250,94 @@ local function esc(text)
     return mp.command_native({"escape-ass", tostring(text or "")})
 end
 
-local function speed_label(v)
-    if math.abs(v - 1) < 0.001 then return locale.normal end
-    return (string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")) .. "×"
+speed_label = function(v)
+    return (string.format("%.2f", v):gsub("0$", "")) .. "x"
 end
+
+adjust_speed = function(delta)
+    local cur = mp.get_property_number("speed", 1)
+    local new_speed = math.floor((cur + delta) * 20 + 0.5) / 20
+    if new_speed < 0.1 then new_speed = 0.1 end
+    if new_speed > 5.0 then new_speed = 5.0 end
+    mp.set_property("speed", string.format("%.2f", new_speed))
+    mp.osd_message(string.format("倍速: %s", speed_label(new_speed)), 1)
+end
+
+save_speed_presets = function()
+    local path = mp.command_native({"expand-path", "~~/speed_presets.json"})
+    local file = io.open(path, "w")
+    if file then
+        file:write(utils.format_json(SPEEDS))
+        file:close()
+    end
+end
+
+load_speed_presets = function()
+    local default_speeds = {3.0, 2.5, 2.0, 1.5, 1.35, 1.25, 1.2, 1.15, 1.1, 1.0, 0.75, 0.5}
+    local path = mp.command_native({"expand-path", "~~/speed_presets.json"})
+    local file = io.open(path, "r")
+    if file then
+        local content = file:read("*a")
+        file:close()
+        local ok, data = pcall(utils.parse_json, content)
+        if ok and type(data) == "table" and #data > 0 then
+            SPEEDS = {}
+            for _, v in ipairs(data) do
+                if type(v) == "number" and v > 0.05 and v <= 100 then
+                    SPEEDS[#SPEEDS + 1] = math.floor(v * 100 + 0.5) / 100
+                end
+            end
+            table.sort(SPEEDS, function(a, b) return a > b end)
+            return
+        end
+    end
+    SPEEDS = default_speeds
+end
+
+add_custom_speed = function(val)
+    val = math.floor(val * 100 + 0.5) / 100
+    local exists = false
+    for _, s in ipairs(SPEEDS) do
+        if math.abs(s - val) < 0.001 then
+            exists = true
+            break
+        end
+    end
+    if not exists then
+        SPEEDS[#SPEEDS + 1] = val
+        table.sort(SPEEDS, function(a, b) return a > b end)
+        save_speed_presets()
+    end
+    mp.set_property("speed", string.format("%.2f", val))
+    mp.osd_message(string.format("已設定倍速: %s", speed_label(val)), 2)
+end
+
+prompt_custom_speed = function()
+    local input_loaded, mp_input = pcall(require, "mp.input")
+    if input_loaded and mp_input and mp_input.get then
+        mp_input.get({
+            prompt = "輸入自訂倍速 (例如 1.75 或 2.2): ",
+            submit = function(text)
+                if not text or text == "" then return end
+                local num = tonumber(text:match("[%d%.]+"))
+                if num and num > 0.05 and num <= 100 then
+                    add_custom_speed(num)
+                else
+                    mp.osd_message("無效的倍速數值", 2)
+                end
+            end
+        })
+    else
+        mp.osd_message("請使用鍵盤快速鍵調整倍速", 2)
+    end
+end
+
+load_speed_presets()
 
 -- glyph name inside an icon marker ("\1name\2")
 local function glyph_of(marker)
     return marker and marker:sub(2, -2) or nil
 end
-
-local SPEEDS = {0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2}
 
 -- Folders: the videos next to the playing file, and a browser for other folders
 local function ext_set(list)
@@ -3418,17 +3602,20 @@ local function menu_items(kind, arg)
         end
     elseif kind == "speed" then
         title = locale.speed_control
+        items[#items + 1] = {
+            icon = glyph_of(icons.add_speed),
+            label = "自訂倍速",
+            meta = "≡+",
+            action = prompt_custom_speed
+        }
         local current = mp.get_property_number("speed", 1)
         for _, v in ipairs(SPEEDS) do
             items[#items + 1] = {label = speed_label(v), active = math.abs(current - v) < 0.001,
                 action = function() mp.commandv("set", "speed", tostring(v)) end}
         end
     elseif kind == "more" then
+        title = locale.more
         local function add(item) items[#items + 1] = item end
-        if user_opts.speed_button then
-            add({icon = glyph_of(icons.speed), label = locale.speed_control, submenu = "speed",
-                 meta = speed_label(mp.get_property_number("speed", 1))})
-        end
         local chapters = mp.get_property_native("chapter-list") or {}
         if #chapters > 0 then
             local ch = mp.get_property_number("chapter", -1)
@@ -3469,6 +3656,8 @@ local function menu_items(kind, arg)
             toggle({icon = glyph_of(icons.info), label = locale.stats_info,
                     action = function() mp.command(user_opts.info_mbtn_left_command) end})
         end
+        toggle({icon = glyph_of(icons.download), label = "執行緒撕裂者 (BTR)",
+                action = function() mp.commandv("script-message-to", "btr", "toggle_menu") end})
     elseif kind == "context" then
         -- the right-click menu: the panel's controls in a few groups
         local group = false
@@ -3505,10 +3694,6 @@ local function menu_items(kind, arg)
         if count.sub > 0 then
             add({icon = glyph_of(icons.subtitle), label = locale.subtitles, submenu = "sub",
                  meta = track_name(mp.get_property_native("current-tracks/sub"))})
-        end
-        if not state.is_image then
-            add({icon = glyph_of(icons.speed), label = locale.speed_control, submenu = "speed",
-                 meta = speed_label(mp.get_property_number("speed", 1))})
         end
         local chapters = mp.get_property_native("chapter-list") or {}
         if #chapters > 0 then
@@ -3895,9 +4080,9 @@ render_menu = function(master_ass, m)
     end
 
     glass_rect(ass, X(mo.x), Y(mo.y), mo.w * k, mo.h * k, MENU.radius * k, {
-        fade = fade, fill_alpha = glass_fill_alpha(glass_blur_active() and 36 or 86),
+        fade = fade, fill_alpha = glass_fill_alpha(glass_blur_active() and 22 or 45),
         shadow = not (glass_blur_active() and user_opts.glass_shadow),
-        shadow_blur = 22, shadow_y = 10, shadow_alpha = 0xB0})
+        shadow_blur = 18, shadow_y = 6, shadow_alpha = 0x80})
 
     local inner_x, inner_w = g.x + MENU.pad, g.w - 2 * MENU.pad - (g.scrolls and 6 or 0)
     local row_r = MENU.radius - MENU.pad
@@ -4086,6 +4271,9 @@ local menu_for_command = {
     ["script-binding select/select-playlist"] = "playlist",
     ["script-binding select/select-chapter"] = "chapter",
     ["script-binding select/select-audio-device"] = "audio-device",
+    ["script-binding select/select-speed"] = "speed",
+    ["script-binding speed_menu/toggle"] = "speed",
+    ["script-binding modernz/speed_menu/toggle"] = "speed",
 }
 
 --
@@ -4259,9 +4447,9 @@ local function glass_panel(name, x, y, w, h, r, group)
     -- the shader casts an adaptive shadow when it runs; otherwise a soft static one
     if user_opts.glass_shadow and not glass_blur_active() then
         lo = part("_shadow", 7)
-        lo.geometry.y = y + 6
-        lo.style = "{\\blur20\\bord0\\shad0\\1c&H000000&}"
-        lo.alpha[1] = 0xB8
+        lo.geometry.y = y + 4
+        lo.style = "{\\blur14\\bord0\\shad0\\1c&H000000&}"
+        lo.alpha[1] = 0x30
     end
     lo = part("_bg", 8)
     lo.style = "{\\blur0\\bord0\\shad0\\1c&H" .. osc_color_convert(glass_look.color) .. "&}"
@@ -4491,6 +4679,7 @@ layouts["default"] = function ()
     state.glass_ui = true
     state.tooltip_y = py - 9
     state.panel_rect = {x1 = px, y1 = py, x2 = px + panel_w, y2 = py + panel_h, r = radius}
+    mp.set_property_native("user-data/osc/panel_rect", { x1 = px, y1 = py, x2 = px + panel_w, y2 = py + panel_h, bottom_height = H - py, bottom_ratio = (H - py) / H, playresy = H, playresx = W })
 
     osc_param.areas = {}
     osc_param.video_margins.b = (panel_h + margin) / H
@@ -4615,6 +4804,7 @@ layouts["default"] = function ()
         {"cache_info", user_opts.cache_info_speed and 70 or 48, 5, osc_styles.glass_cache, user_opts.cache_info},
         {"download", btn, 10, icon, state.is_url and user_opts.download_button},
         {"danmaku", btn, 82, icon, state.danmaku_present and user_opts.danmaku_button},
+        {"speed", 46, 81, osc_styles.glass_speed, user_opts.speed_button},
         {"sub_track", btn, 80, icon, subtitle_track and user_opts.subtitles_button},
         {"audio_track", btn, 75, icon, audio_track and user_opts.audio_tracks_button},
         {"playlist", btn, 65, icon, playlist_button},
@@ -5736,9 +5926,17 @@ end
 
 -- run a button's command; mpv's select lists open as ModernZ menus instead
 local function run_command(command, element_name)
-    local kind = user_opts.modern_menus and menu_for_command[command:match("^%s*(.-)%s*$")]
+    local cmd_trimmed = command:match("^%s*(.-)%s*$")
+    local kind = user_opts.modern_menus and menu_for_command[cmd_trimmed]
     if kind then
         open_menu(kind, element_name)
+    elseif cmd_trimmed:find("speed_menu/step_up", 1, true) then
+        adjust_speed(0.05)
+    elseif cmd_trimmed:find("speed_menu/step_down", 1, true) then
+        adjust_speed(-0.05)
+    elseif cmd_trimmed:find("speed_menu/reset", 1, true) then
+        mp.set_property("speed", "1.0")
+        mp.osd_message("倍速: 1.0x", 1)
     elseif command:find("screenshot", 1, true) then
         screenshot_without_glass(command)
     else
@@ -6223,8 +6421,34 @@ local function osc_init()
 
     --speed
     ne = new_element("speed", "button")
-    ne.content = function() return string.format(state.speed % 1 == 0 and "%.1f×" or "%g×", state.speed) end
-    ne.tooltipF = locale.speed_control
+    ne.content = function()
+        if not state.speed or math.abs(state.speed - 1) < 0.001 then
+            return icons.speed
+        else
+            return speed_label(state.speed)
+        end
+    end
+    ne.tooltipF = function()
+        local cur = state.speed or 1
+        return string.format("%s (%s)", locale.speed_control, speed_label(cur))
+    end
+    ne.eventresponder["mbtn_left_up"] = function()
+        if state.menu and state.menu.kind == "speed" then
+            close_menu()
+        else
+            open_menu("speed", "speed")
+        end
+    end
+    ne.eventresponder["mbtn_right_up"] = function()
+        mp.set_property("speed", "1.0")
+        mp.osd_message("倍速: 1.0x", 1)
+    end
+    ne.eventresponder["wheel_up_press"] = function()
+        adjust_speed(0.05)
+    end
+    ne.eventresponder["wheel_down_press"] = function()
+        adjust_speed(-0.05)
+    end
     bind_buttons("speed")
 
     --download
@@ -7181,6 +7405,7 @@ observe_cached("mute", request_tick)
 observe_cached("eof-reached", request_tick)
 observe_cached("ontop", request_init)
 observe_cached("speed", request_tick)
+observe_cached("user-data/sponsorblock/segments", request_tick)
 -- the layout reserves a chapter title row only while inside a chapter, so rebuild it
 -- when playback enters or leaves the chapter range (e.g. starting before the first chapter)
 mp.observe_property("chapter", "native", function(_, value)
@@ -7203,6 +7428,12 @@ mp.observe_property("sub-pos", "native", function(_, value)
     if value == nil then return end
     if state.osc_adjusted_subpos == nil or value ~= state.osc_adjusted_subpos then
         state.user_subpos = value
+    end
+end)
+mp.observe_property("sub-margin-y", "native", function(_, value)
+    if value == nil then return end
+    if state.osc_adjusted_sub_margin_y == nil or value ~= state.osc_adjusted_sub_margin_y then
+        state.user_sub_margin_y = value
     end
 end)
 
@@ -7428,6 +7659,29 @@ mp.add_key_binding(nil, "progress-toggle", function()
     user_opts.persistent_progress = not user_opts.persistent_progress
     state.persistent_progress_toggle = user_opts.persistent_progress
     request_init()
+end)
+mp.add_key_binding(nil, "speed_menu/toggle", function()
+    if state.menu and state.menu.kind == "speed" then
+        close_menu()
+    else
+        open_menu("speed", "speed")
+    end
+end)
+mp.add_key_binding(nil, "speed_menu/step_up", function() adjust_speed(0.05) end)
+mp.add_key_binding(nil, "speed_menu/step_down", function() adjust_speed(-0.05) end)
+mp.add_key_binding(nil, "speed_menu/reset", function()
+    mp.set_property("speed", "1.0")
+    mp.osd_message("倍速: 1.0x", 1)
+end)
+mp.register_script_message("modernz-speed-step", function(delta) adjust_speed(tonumber(delta) or 0.05) end)
+mp.register_script_message("speed_menu/toggle", function()
+    if state.menu and state.menu.kind == "speed" then close_menu() else open_menu("speed", "speed") end
+end)
+mp.register_script_message("speed_menu/step_up", function() adjust_speed(0.05) end)
+mp.register_script_message("speed_menu/step_down", function() adjust_speed(-0.05) end)
+mp.register_script_message("speed_menu/reset", function()
+    mp.set_property("speed", "1.0")
+    mp.osd_message("倍速: 1.0x", 1)
 end)
 mp.register_script_message("osc-idlescreen", idlescreen_visibility)
 mp.register_script_message("thumbfast-info", function(json)

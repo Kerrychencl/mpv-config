@@ -478,6 +478,7 @@ end)
 -- 【BTR 視覺化 OSD 設置面板（深度還原 BTR 官方樣式）】
 -- =====================================================================
 local osd = mp.create_osd_overlay('ass-events')
+osd.z = 2500
 local is_open = false
 local prev_dragging = "yes"
 local hovered_btn = nil
@@ -515,14 +516,28 @@ local function set_pointer_cursor(is_hand)
     end
 end
 
+local function get_btr_scale()
+    local raw_ww, raw_wh = mp.get_osd_size()
+    if not raw_wh or raw_wh == 0 then return 1.0, 1280, 720 end
+    local scale = math.max(1.0, math.min(2.5, raw_wh / 720))
+    return scale, raw_ww, raw_wh
+end
+
+local function get_scaled_mouse_pos()
+    local scale = get_btr_scale()
+    local raw_mx, raw_my = mp.get_mouse_pos()
+    return math.floor(raw_mx / scale + 0.5), math.floor(raw_my / scale + 0.5)
+end
+
 local function get_card_pos()
-    local ww, wh = mp.get_osd_size()
-    if not ww or ww == 0 then ww, wh = 1280, 720 end
+    local scale, raw_ww, raw_wh = get_btr_scale()
+    local ww = math.floor(raw_ww / scale + 0.5)
+    local wh = math.floor(raw_wh / scale + 0.5)
     local cur_w = math.min(CW, ww - 20)
     local cur_h = math.min(CH, wh - 20)
     local x0 = math.max(10, math.floor((ww - cur_w) / 2))
     local y0 = math.max(10, math.floor((wh - cur_h) / 2))
-    return x0, y0, cur_w, cur_h, ww, wh
+    return x0, y0, cur_w, cur_h, ww, wh, scale
 end
 
 -- 繪製開關 Switch Toggle
@@ -551,7 +566,7 @@ end
 -- 繪製圖一：主面板 (Main Page)
 local function render_main_page(ass, x0, y0, w, h)
     -- 1. 頂部 Header
-    -- 粉色 B 圖標 Badge
+    -- 粉色 B 圖標 Badge (帶 3 條速度線與粗體 B)
     local badge_x = x0 + 20
     local badge_y = y0 + 18
     local badge_s = 34
@@ -561,9 +576,19 @@ local function render_main_page(ass, x0, y0, w, h)
     ass:round_rect_cw(badge_x, badge_y, badge_x + badge_s, badge_y + badge_s, 8)
     ass:draw_stop()
 
+    -- 圖三：左側 3 條白色速度線
+    ass:new_event()
+    ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&HFFFFFF&}")
+    ass:draw_start()
+    ass:round_rect_cw(badge_x + 5, badge_y + 11, badge_x + 10, badge_y + 13, 1)
+    ass:round_rect_cw(badge_x + 4, badge_y + 16, badge_x + 11, badge_y + 18, 1)
+    ass:round_rect_cw(badge_x + 5, badge_y + 21, badge_x + 10, badge_y + 23, 1)
+    ass:draw_stop()
+
+    -- 圖三：右側粗體白色大寫 B
     ass:new_event()
     ass:append(string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs20\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}B",
-        badge_x + badge_s / 2, badge_y + badge_s / 2))
+        badge_x + 21, badge_y + 17))
 
     -- 標題與版本
     ass:new_event()
@@ -643,7 +668,7 @@ local function render_main_page(ass, x0, y0, w, h)
 
     ass:new_event()
     ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}條線程",
-        x0 + 36, status_card_y + card_h / 2))
+        x0 + 36, status_card_y + card_h / 2, active_threads))
     ass:new_event()
     ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}KB/s (%.1fs)",
         x0 + 20 + card_w - 16, status_card_y + card_h / 2, math.min(cache_kb, 9999), cache_secs))
@@ -705,9 +730,18 @@ local function render_advanced_page(ass, x0, y0, w, h)
     ass:round_rect_cw(badge_x, badge_y, badge_x + badge_s, badge_y + badge_s, 6)
     ass:draw_stop()
 
+    -- 圖三：左側 3 條白色速度線
+    ass:new_event()
+    ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&HFFFFFF&}")
+    ass:draw_start()
+    ass:round_rect_cw(badge_x + 4, badge_y + 8, badge_x + 8, badge_y + 10, 1)
+    ass:round_rect_cw(badge_x + 3, badge_y + 13, badge_x + 9, badge_y + 15, 1)
+    ass:round_rect_cw(badge_x + 4, badge_y + 18, badge_x + 8, badge_y + 20, 1)
+    ass:draw_stop()
+
     ass:new_event()
     ass:append(string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs16\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}B",
-        badge_x + badge_s / 2, badge_y + badge_s / 2))
+        badge_x + 18, badge_y + 14))
 
     ass:new_event()
     ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs15\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}線程撕裂者", badge_x + badge_s + 10, badge_y + 9))
@@ -1103,6 +1137,7 @@ local function render_menu()
 
     osd.res_x = ww
     osd.res_y = wh
+    osd.z = 2500
     osd.hidden = false
     osd.data = ass.text
     osd:update()
@@ -1110,7 +1145,7 @@ end
 
 local function on_mouse_move()
     if not is_open then return end
-    local mx, my = mp.get_mouse_pos()
+    local mx, my = get_scaled_mouse_pos()
     local prev_h = hovered_btn
     hovered_btn = nil
 
@@ -1129,7 +1164,7 @@ end
 
 local function on_mouse_click()
     if not is_open then return end
-    local mx, my = mp.get_mouse_pos()
+    local mx, my = get_scaled_mouse_pos()
     local x0, y0, w, h = get_card_pos()
 
     -- 點擊卡片外關閉
@@ -1287,6 +1322,10 @@ mp.observe_property("osd-dimensions", "native", function()
 end)
 
 mp.add_key_binding("Alt+t", "toggle_menu", toggle_menu)
+mp.add_key_binding(nil, "toggle_menu", toggle_menu)
+mp.add_key_binding(nil, "toggle", toggle_menu)
+mp.register_script_message("toggle_menu", toggle_menu)
+mp.register_script_message("toggle", toggle_menu)
 mp.register_script_message("btr-open-menu", open_menu)
 mp.register_script_message("btr-close-menu", close_menu)
 mp.register_script_message("btr-toggle-menu", toggle_menu)

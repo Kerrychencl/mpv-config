@@ -70,8 +70,13 @@ end
 local function extract_ids()
     local path = mp.get_property("path") or ""
     local webpage_url = mp.get_property("metadata/by-key/webpage_url") or ""
+    local filtered_url = mp.get_property("filtered-metadata/by-key/webpage_url") or ""
+    local stream_open = mp.get_property("stream-open-filename") or ""
+    local filename = mp.get_property("filename") or ""
+    local media_title = mp.get_property("media-title") or ""
+    local playlist_path = mp.get_property("playlist-path") or ""
     
-    local targets = { path, webpage_url }
+    local targets = { webpage_url, filtered_url, path, stream_open, filename, media_title, playlist_path }
     local yt_id = nil
     local bvid = nil
 
@@ -85,6 +90,8 @@ local function extract_ids()
                     or target:match("youtube%.com/embed/([%w_%-]+)")
                     or target:match("youtube%.com/live/([%w_%-]+)")
                     or target:match("ytdl://([%w_%-]+)")
+                    or target:match("%[([%w_%-]{11})%]")
+                    or target:match("%-([%w_%-]{11})%.%w+$")
                 if y and #y >= 11 then
                     yt_id = y:sub(1, 11)
                 end
@@ -98,6 +105,7 @@ local function extract_ids()
                     bvid = b
                 else
                     local a = target:match("bilibili%.com/video/[Aa][Vv](%d+)")
+                        or target:match("[Aa][Vv](%d%d%d%d%d+)")
                         or target:match("^[Aa][Vv](%d+)$")
                     if a then
                         bvid = "av" .. a
@@ -181,9 +189,85 @@ local function fetch_segments(url, yt_id, bvid)
     end)
 end
 
--- 自動跳過監聽器
+local sb_overlay = mp.create_osd_overlay('ass-events')
+sb_overlay.z = 2600
+local manual_skip_active = nil
+local manual_skip_btn_rect = nil
+
+local function hide_manual_skip()
+    if manual_skip_active then
+        manual_skip_active = nil
+        manual_skip_btn_rect = nil
+        sb_overlay.hidden = true
+        sb_overlay.data = ""
+        sb_overlay:update()
+        pcall(mp.remove_key_binding, "sb_manual_skip_tab")
+        pcall(mp.remove_key_binding, "sb_manual_skip_click")
+    end
+end
+
+local function execute_manual_skip(seg)
+    if not seg then return end
+    hide_manual_skip()
+    last_skip = {
+        segment = seg,
+        from_pos = mp.get_property_number("time-pos", seg.start_time),
+        to_pos = seg.end_time
+    }
+    mp.set_property_number("time-pos", seg.end_time)
+    local msg = string.format("⏩ [SponsorBlock] 已手動跳過 %s\n(%s → %s | 按 Alt+u 可復原)", 
+        seg.name, format_time(seg.start_time), format_time(seg.end_time))
+    mp.osd_message(msg, 3.0)
+    mp.msg.info(msg)
+end
+
+local function show_manual_skip(seg)
+    if manual_skip_active == seg then return end
+    manual_skip_active = seg
+
+    local ww, wh = mp.get_osd_size()
+    if not ww or ww == 0 then ww, wh = 1280, 720 end
+    sb_overlay.res_x = ww
+    sb_overlay.res_y = wh
+
+    local btn_w = 310
+    local btn_h = 42
+    local btn_x = ww - btn_w - 30
+    local btn_y = wh - btn_h - 90
+    manual_skip_btn_rect = { x1 = btn_x, y1 = btn_y, x2 = btn_x + btn_w, y2 = btn_y + btn_h }
+
+    local ass = string.format(
+        "{\\an7\\pos(0,0)\\bord1.5\\3c&HFFFFFF&\\3a&H50&\\1c&H1A1818&\\1a&H18&}{\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}" ..
+        "{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs15\\b1\\fnMicrosoft JhengHei\\1c&H00D482&}⏩ 跳過 %s {\\fs13\\b0\\1c&HFFFFFF&}(按 {\\b1\\1c&HFFDE59&}Tab{\\b0\\1c&HFFFFFF&} 或點擊)",
+        btn_x, btn_y, btn_x + btn_w, btn_y, btn_x + btn_w, btn_y + btn_h, btn_x, btn_y + btn_h,
+        math.floor(btn_x + btn_w / 2), math.floor(btn_y + btn_h / 2),
+        seg.name
+    )
+
+    sb_overlay.hidden = false
+    sb_overlay.data = ass
+    sb_overlay:update()
+
+    mp.add_forced_key_binding("TAB", "sb_manual_skip_tab", function()
+        execute_manual_skip(seg)
+    end)
+    mp.add_forced_key_binding("MBTN_LEFT", "sb_manual_skip_click", function()
+        local mx, my = mp.get_mouse_pos()
+        if manual_skip_btn_rect and mx >= manual_skip_btn_rect.x1 and mx <= manual_skip_btn_rect.x2
+            and my >= manual_skip_btn_rect.y1 and my <= manual_skip_btn_rect.y2 then
+            execute_manual_skip(seg)
+        end
+    end)
+end
+
+-- 自動跳過與手動跳過按鈕監聽器
 on_time_pos = function(name, pos)
-    if not pos or #current_segments == 0 then return end
+    if not pos or #current_segments == 0 then
+        hide_manual_skip()
+        return
+    end
+
+    local in_manual_seg = nil
 
     for _, seg in ipairs(current_segments) do
         -- 離開該區間時重置 skipped 狀態，以便使用者倒退重播時能再度跳過
@@ -191,23 +275,37 @@ on_time_pos = function(name, pos)
             seg.skipped = false
         end
 
-        if seg.skip and not seg.skipped and seg.end_time > seg.start_time then
-            -- 當前時間處於跳過區間（容差 0.2 秒）
-            if pos >= (seg.start_time - 0.2) and pos < (seg.end_time - 0.2) then
-                seg.skipped = true
-                last_skip = {
-                    segment = seg,
-                    from_pos = pos,
-                    to_pos = seg.end_time
-                }
-                mp.set_property_number("time-pos", seg.end_time)
-                local msg = string.format("⏩ [SponsorBlock] 已跳過 %s\n(%s → %s | 按 Alt+u 可復原)", 
-                    seg.name, format_time(seg.start_time), format_time(seg.end_time))
-                mp.osd_message(msg, 3.5)
-                mp.msg.info(msg)
-                return
+        if seg.end_time > seg.start_time then
+            if seg.skip and not seg.skipped then
+                -- 自動跳過區間（預設僅商業贊助廣告）
+                if pos >= (seg.start_time - 0.2) and pos < (seg.end_time - 0.2) then
+                    seg.skipped = true
+                    hide_manual_skip()
+                    last_skip = {
+                        segment = seg,
+                        from_pos = pos,
+                        to_pos = seg.end_time
+                    }
+                    mp.set_property_number("time-pos", seg.end_time)
+                    local msg = string.format("⏩ [SponsorBlock] 已跳過 %s\n(%s → %s | 按 Alt+u 可復原)", 
+                        seg.name, format_time(seg.start_time), format_time(seg.end_time))
+                    mp.osd_message(msg, 3.5)
+                    mp.msg.info(msg)
+                    return
+                end
+            elseif not seg.skip then
+                -- 手動跳過區間（片頭、片尾、精彩看點、自促銷等）
+                if pos >= seg.start_time and pos < seg.end_time then
+                    in_manual_seg = seg
+                end
             end
         end
+    end
+
+    if in_manual_seg then
+        show_manual_skip(in_manual_seg)
+    else
+        hide_manual_skip()
     end
 end
 
@@ -217,6 +315,7 @@ local function undo_skip()
         local seg = last_skip.segment
         mp.set_property_number("time-pos", seg.start_time)
         seg.skipped = true
+        hide_manual_skip()
         mp.osd_message(string.format("⏪ [SponsorBlock] 已復原，返回 %s 開始處", seg.name), 2.5)
         last_skip = nil
     else
@@ -243,6 +342,7 @@ local function check_and_fetch()
 end
 
 local function on_file_loaded()
+    hide_manual_skip()
     local bvid, yt_id = extract_ids()
     local target_id = yt_id or bvid
 
@@ -266,6 +366,7 @@ local function on_file_loaded()
 end
 
 local function on_end_file()
+    hide_manual_skip()
     clean_chapters()
     current_segments = {}
     last_skip = nil
@@ -284,6 +385,7 @@ end)
 
 mp.observe_property("time-pos", "number", on_time_pos)
 mp.observe_property("path", "string", check_and_fetch)
+mp.observe_property("media-title", "string", check_and_fetch)
 mp.observe_property("metadata", "native", function()
     check_and_fetch()
 end)

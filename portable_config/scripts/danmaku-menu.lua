@@ -40,6 +40,7 @@ local dragging_slider = nil
 local hovered_element = nil
 local timeout_timer = nil
 local osd = mp.create_osd_overlay('ass-events')
+osd.z = 2500
 
 -- 記憶開啟面板前的視窗拖動設定，以便關閉時還原
 local prev_window_dragging = "yes"
@@ -147,8 +148,24 @@ end
 local function get_card_pos()
     local ww, wh = mp.get_osd_size()
     if not ww or ww == 0 then ww, wh = 1280, 720 end
+    local osc_margins = mp.get_property_native("user-data/osc/margins")
+    local panel_rect = mp.get_property_native("user-data/osc/panel_rect")
+    local bottom_offset = nil
+    if panel_rect and type(panel_rect) == "table" then
+        if panel_rect.bottom_ratio and panel_rect.bottom_ratio > 0 then
+            bottom_offset = math.floor(wh * panel_rect.bottom_ratio + 12)
+        elseif panel_rect.bottom_height and panel_rect.playresy and panel_rect.playresy > 0 then
+            bottom_offset = math.floor(wh * (panel_rect.bottom_height / panel_rect.playresy) + 12)
+        end
+    end
+    if not bottom_offset and osc_margins and type(osc_margins) == "table" and osc_margins.b and osc_margins.b > 0 then
+        bottom_offset = math.floor(wh * osc_margins.b + 12)
+    end
+    if not bottom_offset then
+        bottom_offset = math.floor(wh * 0.14 + 12)
+    end
     local x0 = ww - CW - 30
-    local y0 = wh - CH - 60
+    local y0 = wh - CH - bottom_offset
     if x0 < 20 then x0 = math.max(0, math.floor((ww - CW) / 2)) end
     if y0 < 20 then y0 = math.max(0, math.floor((wh - CH) / 2)) end
     return x0, y0, ww, wh
@@ -524,6 +541,7 @@ local function render()
 
     osd.res_x = ww
     osd.res_y = wh
+    osd.z = 2500
     osd.hidden = false
     osd.data = ass.text
     osd:update()
