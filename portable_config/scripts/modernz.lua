@@ -555,8 +555,8 @@ local icon_names = {
     ["fluent_skip_next_filled"] = "fluent_next_filled",
     ["fluent_skip_previous"] = "fluent_previous",
     ["fluent_skip_previous_filled"] = "fluent_previous_filled",
-    ["fluent_speed"] = "fluent_top_speed",
-    ["fluent_speed_filled"] = "fluent_top_speed_filled",
+    ["fluent_speed"] = "speed_filled",
+    ["fluent_speed_filled"] = "speed_filled",
     ["fluent_subtitles"] = "fluent_subtitles",
     ["fluent_subtitles_filled"] = "fluent_subtitles_filled",
     ["fluent_surround_sound"] = "fluent_audio",
@@ -631,7 +631,7 @@ local icon_names = {
     ["material_skip_next_filled"] = "skip_next_filled",
     ["material_skip_previous"] = "skip_previous",
     ["material_skip_previous_filled"] = "skip_previous_filled",
-    ["material_speed"] = "speed",
+    ["material_speed"] = "speed_filled",
     ["material_speed_filled"] = "speed_filled",
     ["material_subtitles"] = "subtitles",
     ["material_subtitles_filled"] = "subtitles_filled",
@@ -3601,11 +3601,10 @@ local function menu_items(kind, arg)
                 action = function() mp.commandv("set", "audio-device", name) end}
         end
     elseif kind == "speed" then
-        title = locale.speed_control
+        title = nil
         items[#items + 1] = {
             icon = glyph_of(icons.add_speed),
-            label = "自訂倍速",
-            meta = "≡+",
+            label = "",
             action = prompt_custom_speed
         }
         local current = mp.get_property_number("speed", 1)
@@ -3923,7 +3922,10 @@ local function menu_geometry(m)
         if w > widest then widest = w end
     end
     local lead = m.covers and (COVER_X + COVER_W + COVER_GAP + 2) or m.icons and 40 or 32
-    local w = math.floor(math.max(200, math.min(widest + lead + 2 * MENU.pad + 18, math.min(440, W - 24))))
+    if m.kind == "speed" then lead = 16 end
+    local min_w = (m.kind == "speed") and 76 or 200
+    local w = math.floor(math.max(min_w, math.min(widest + lead + 2 * MENU.pad + 18, math.min(440, W - 24))))
+    if m.kind == "speed" then w = 76 end
 
     local header = m.title and MENU.header_h or MENU.pad
     local at = m.at
@@ -4158,7 +4160,8 @@ render_menu = function(master_ass, m)
             if menu.scroll + g.rows < #menu.items and r > g.rows - 2 then edge = math.max(edge, r == g.rows and 0x99 or 0x44) end
         end
 
-        local label_x = inner_x + (menu.covers and (COVER_X + COVER_W + COVER_GAP) or menu.icons and 38 or 30)
+        local label_x = (menu.kind == "speed") and (inner_x + 12)
+            or (inner_x + (menu.covers and (COVER_X + COVER_W + COVER_GAP) or menu.icons and 38 or 30))
         local trail = right
         if item.cover then
             -- the tile moves with the menu; the picture goes on top once it stands still
@@ -4184,10 +4187,16 @@ render_menu = function(master_ass, m)
             end
         end
         if menu.icons then
-            if item.icon then glyph(item.icon, inner_x + (menu.covers and (COVER_X + COVER_W / 2) or 18), cy, MENU.icon, edge) end
+            if item.icon then
+                local ix = inner_x + (menu.covers and (COVER_X + COVER_W / 2) or 18)
+                if menu.kind == "speed" and (not item.label or item.label == "") then
+                    ix = inner_x + inner_w / 2
+                end
+                glyph(item.icon, ix, cy, MENU.icon, edge)
+            end
             if item.active and not menu.covers then
                 glyph("menu_check", right - 6, cy, MENU.glyph, edge)
-                trail = right - 22
+                trail = right - 18
             end
         elseif item.active then
             glyph("menu_check", inner_x + 15, cy, MENU.glyph, edge)
@@ -4199,9 +4208,11 @@ render_menu = function(master_ass, m)
         local meta_w = item.meta and estimate_text_width(item.meta, st.meta .. "{\\fs" .. MENU.meta_fs .. "}") or 0
         if item.meta then text(trail, cy, 6, st.meta, MENU.meta_fs, item.meta, edge) end
         local label_right = trail - (item.meta and meta_w + 14 or 0)
-        local label = fit_label(item, label_right - label_x, st.label .. "{\\fs" .. MENU.fs .. "}")
-        text(label_x, cy, 4, st.label, MENU.fs, label, edge,
-             clip_rect(XC(label_x - 2), Y(ry), XC(label_right), Y(ry + row_h)))
+        if item.label and item.label ~= "" then
+            local label = (menu.kind == "speed") and item.label or fit_label(item, label_right - label_x, st.label .. "{\\fs" .. MENU.fs .. "}")
+            local clip = (menu.kind == "speed") and cut_tag or clip_rect(XC(label_x - 2), Y(ry), XC(label_right), Y(ry + row_h))
+            text(label_x, cy, 4, st.label, MENU.fs, label, edge, clip)
+        end
     end
 
     -- covers still to make: the rows on screen first

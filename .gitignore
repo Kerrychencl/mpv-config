@@ -7,7 +7,8 @@
 portable_config/cookies.txt
 portable_config/cache/
 portable_config/watch_later/
-portable_config/sponsorblock_shared/
+portable_config/sponsorblock_shared/*
+!portable_config/sponsorblock_shared/sponsor_unified.py
 portable_config/file_browser-last_opened_directory
 
 # Temporary files and python cache

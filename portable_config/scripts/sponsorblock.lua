@@ -194,6 +194,16 @@ sb_overlay.z = 2600
 local manual_skip_active = nil
 local manual_skip_btn_rect = nil
 
+local MANUAL_SKIP_SECTION = "sponsorblock_manual_skip"
+
+mp.set_key_bindings({
+    {"mbtn_left", function()
+        if manual_skip_active then
+            execute_manual_skip(manual_skip_active)
+        end
+    end}
+}, MANUAL_SKIP_SECTION, "force")
+
 local function hide_manual_skip()
     if manual_skip_active then
         manual_skip_active = nil
@@ -201,8 +211,9 @@ local function hide_manual_skip()
         sb_overlay.hidden = true
         sb_overlay.data = ""
         sb_overlay:update()
+        mp.set_mouse_area(0, 0, 0, 0, MANUAL_SKIP_SECTION)
+        mp.disable_key_bindings(MANUAL_SKIP_SECTION)
         pcall(mp.remove_key_binding, "sb_manual_skip_tab")
-        pcall(mp.remove_key_binding, "sb_manual_skip_click")
     end
 end
 
@@ -248,17 +259,21 @@ local function show_manual_skip(seg)
     sb_overlay.data = ass
     sb_overlay:update()
 
+    mp.set_mouse_area(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, MANUAL_SKIP_SECTION)
+    mp.enable_key_bindings(MANUAL_SKIP_SECTION)
+
     mp.add_forced_key_binding("TAB", "sb_manual_skip_tab", function()
         execute_manual_skip(seg)
     end)
-    mp.add_forced_key_binding("MBTN_LEFT", "sb_manual_skip_click", function()
-        local mx, my = mp.get_mouse_pos()
-        if manual_skip_btn_rect and mx >= manual_skip_btn_rect.x1 and mx <= manual_skip_btn_rect.x2
-            and my >= manual_skip_btn_rect.y1 and my <= manual_skip_btn_rect.y2 then
-            execute_manual_skip(seg)
-        end
-    end)
 end
+
+mp.observe_property("osd-dimensions", "native", function()
+    if manual_skip_active then
+        local seg = manual_skip_active
+        manual_skip_active = nil
+        show_manual_skip(seg)
+    end
+end)
 
 -- 自動跳過與手動跳過按鈕監聽器
 on_time_pos = function(name, pos)
