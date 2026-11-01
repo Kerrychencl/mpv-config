@@ -17,8 +17,10 @@
 [TEST 3] ModernZ Transport Buttons & Bottom Layout Matching Figure 1
   [PASS] modernz.conf buttons_always_active=playlist_prev,playlist_next
   [PASS] Center transport group has playlist_prev, jump_backward, play, jump_forward, playlist_next
-  [PASS] Left group has playlist, audio, sub, vol, volumebar, time_codes
-  [PASS] Right group has danmaku, speed, shuffle, file_loop, screenshot, ontop, fullscreen
+  [PASS] Left group has audio, sub, vol, volumebar, time_codes (no playlist)
+  [PASS] Right group has danmaku, speed, playlist, more, fullscreen (clean, no shuffle/loop/screenshot/ontop)
+  [PASS] Bottom panel height narrowed (panel_h=58, cy=py+38, seek_cy=py+14, btn=34)
+  [PASS] Volume slider linkage updated to index 3 & 4
   [PASS] show_window_title=yes in modernz.conf
 
 [TEST 4] Danmaku Menu & OSC Observer Synchronization
@@ -36,11 +38,43 @@
   [PASS] sponsorblock observes both user-data/osc/visible and panel_rect
   [PASS] sponsorblock applies safe math bounds for btn_w and btn_x
 
+[TEST 7] Right-click Menu First-level Track Item Removal
+  [PASS] input.conf removed first-level track item (#menu: 軌道 #@tracks)
+
+[TEST 8] ModernZ Glass Shader Transparency & Blur Tuning
+  [PASS] GLASS_SHADER and glass_blur_update strength lowered to 0.55
+  [PASS] GLASS_SHADER tone lowered to 0.08
+  [PASS] modernz.conf glass_opacity=6
+  [PASS] modernz.conf panel_margin=10
+
+[TEST 9] Thumbfast Exact Seek & EDL Extraction
+  [PASS] thumbfast.conf exact_seek=auto and exact_seek_delay=0.08
+  [PASS] thumbfast.lua extracts EDL url with %length% prefix without comma truncating
+
+[TEST 10] Bilibili Live Stream Danmaku Noise Prevention
+  [PASS] mpv-danmaku/main.lua has is_bili_live_stream helper
+  [PASS] extract_bili_cid aborts immediately on live stream
+
+[TEST 11] Subtitle Margin Elevation Tuning
+  [PASS] sub-pos adjusted by moderate factor (margins.b * 0.6)
+  [PASS] sub-margin-y adjusted by moderate factor (margins.b * H * 0.55)
+
+[TEST 12] Speed Menu Inline Editing & Custom Speed Deletion
+  [PASS] modernz.lua contains start_speed_edit and stop_speed_edit
+  [PASS] modernz.lua contains remove_custom_speed
+  [PASS] render_menu draws window_close on hovered custom speed
+  [PASS] menu_event supports right-click or cross-click to remove custom speed
+
+[TEST 13] Top Window Title Capsule Dynamic Width & Observers
+  [PASS] glass_window_controls measures dynamic raw_title width with glass_window_title
+  [PASS] windowtitle element uses glass_window_title style under glass_ui
+  [PASS] observe_cached watches media-title and title to request_init_resize
+
 ================================================================================
-  CODE LOGIC SUMMARY: Total 22 | Passed: 22 | Failed: 0
+  CODE LOGIC SUMMARY: Total 42 | Passed: 42 | Failed: 0
 ================================================================================
 
-[TEST 7] Performing In-Engine Visual Screenshots & GUI Execution
+[VISUAL TESTS] Performing In-Engine Visual Screenshots & GUI Execution
   [ACTION] Showing ModernZ OSC & Top Title...
   [SAVED] prove-it/screenshots/01_osc_ui_layout.png
   [ACTION] Toggling ModernZ Speed Menu...

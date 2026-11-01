@@ -66,7 +66,23 @@ local is_file_active = false
 local pending_setsub_msg = nil
 local early_cid_loading = false
 
+local function is_bili_live_stream()
+    local path = (mp.get_property("path") or ""):lower()
+    local stream_path = (mp.get_property("stream-open-filename") or ""):lower()
+    local combined = path .. " " .. stream_path
+    if combined:find("live%.bilibili%.com")
+        or combined:find("/live_")
+        or combined:find("/live%-bvc/")
+        or combined:find("/live/")
+        or (combined:find("[?&]os=mcdn") and (combined:find("live") or combined:find("bvc"))) then
+        return true
+    end
+    return false
+end
+
 local function extract_bili_cid()
+    if is_bili_live_stream() then return nil end
+
     local path = mp.get_property("path", "")
     local stream_path = mp.get_property("stream-open-filename", "")
 
@@ -1225,6 +1241,11 @@ function on_file_loaded()
     local is_yt = (lower_p:match("youtube%.com") or lower_p:match("youtu%.be")) and lower_p:match("http")
 
     if is_bili then
+        if is_bili_live_stream() then
+            mp.msg.info("[mpv-danmaku] 偵測到 B 站直播串流，不加載無關彈幕")
+            unloadsub()
+            return
+        end
         local detected_cid = extract_bili_cid()
         if detected_cid and detected_cid ~= "" then
             mp.msg.info(string.format("[mpv-danmaku] 偵測到 B 站 CID: %s，直接啟動極速彈幕解析", detected_cid))
@@ -1263,6 +1284,7 @@ function unloadsub()
 end
 
 local function handle_early_bili_danmaku()
+    if is_bili_live_stream() then return end
     local path = mp.get_property("path", "")
     local stream_path = mp.get_property("stream-open-filename", "")
     local target = (path .. " " .. stream_path):lower()
