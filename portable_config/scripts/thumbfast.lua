@@ -463,22 +463,31 @@ end
 
 local function clean_edl_url(url)
     if not url then return nil end
-    local clean = url:match("^(https?://.-),%a+=")
-    if clean then return clean end
-    clean = url:match("^(https?://[^;,!%s\"]+)")
-    if clean then return clean end
-    return url
+    local clean = url:gsub(",length=%d+.*$", ""):gsub(",media_type=%a+.*$", "")
+    return clean
 end
 
 local function extract_direct_url(fn)
     if not fn or fn == "" then return fn end
     if fn:match("^edl://") then
-        local url = fn:match("media_type=video.-;%%%d+%%(https?://[^;]+)")
-        if url then return clean_edl_url(url) end
-        local url2 = fn:match("%%%d+%%(https?://[^;]+)")
-        if url2 then return clean_edl_url(url2) end
-        local url3 = fn:match("(https?://[^;,!%s\"]+)")
-        if url3 then return clean_edl_url(url3) end
+        local len_str, url_body = fn:match("media_type=video.-;%%(%d+)%%(https?://.+)")
+        if len_str and url_body then
+            local len = tonumber(len_str)
+            if len and len > 0 and len <= #url_body then
+                return url_body:sub(1, len)
+            end
+        end
+        local len_str2, url_body2 = fn:match("%%(%d+)%%(https?://.+)")
+        if len_str2 and url_body2 then
+            local len = tonumber(len_str2)
+            if len and len > 0 and len <= #url_body2 then
+                return url_body2:sub(1, len)
+            end
+        end
+        local url3 = fn:match("(https?://[^;\r\n]+)")
+        if url3 then
+            return clean_edl_url(url3)
+        end
     end
     return fn
 end

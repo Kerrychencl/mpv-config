@@ -132,21 +132,35 @@ do
             m_content:find("{\"playlist_next\", btn, 60, transport, nextprev") ~= nil,
             "center button group order mismatch")
 
-        -- Left group: playlist, audio_track, sub_track, vol_ctrl, volumebar, time_codes
-        assert_test("Left group has playlist, audio, sub, vol, volumebar, time_codes",
-            m_content:find("{\"playlist\", btn, 75, icon, playlist_button, 4},%s*{\"audio_track\", btn, 78, icon, audio_track and user_opts.audio_tracks_button, 4},%s*{\"sub_track\", btn, 79, icon, subtitle_track and user_opts.subtitles_button, 4},%s*{\"vol_ctrl\", btn, 85, icon, audio_track and user_opts.volume_control, 0},%s*{\"volumebar\", 72, 25, nil, audio_track and user_opts.volume_control, 8},%s*{\"time_codes\", time_codes_w, 95, osc_styles.glass_time") ~= nil,
+        -- Left group: audio_track, sub_track, vol_ctrl, volumebar, time_codes
+        assert_test("Left group has audio, sub, vol, volumebar, time_codes (no playlist)",
+            m_content:find("{\"audio_track\", btn, 78, icon, audio_track and user_opts.audio_tracks_button, 4},%s*{\"sub_track\", btn, 79, icon, subtitle_track and user_opts.subtitles_button, 4},%s*{\"vol_ctrl\", btn, 85, icon, audio_track and user_opts.volume_control, 0},%s*{\"volumebar\", 72, 25, nil, audio_track and user_opts.volume_control, 8},%s*{\"time_codes\", time_codes_w, 95, osc_styles.glass_time") ~= nil,
             "left group order mismatch")
 
-        -- Right group: danmaku, speed, shuffle, file_loop, screenshot, ontop, fullscreen
-        assert_test("Right group has danmaku, speed, shuffle, file_loop, screenshot, ontop, fullscreen",
+        -- Right group: download, danmaku, speed, playlist, more, fullscreen
+        assert_test("Right group has danmaku, speed, playlist, more, fullscreen (clean, no shuffle/loop/screenshot/ontop)",
             m_content:find("{\"danmaku\", btn, 82, icon, state.danmaku_present and user_opts.danmaku_button}") ~= nil and
             m_content:find("{\"speed\", 46, 81, osc_styles.glass_speed, user_opts.speed_button}") ~= nil and
-            m_content:find("{\"shuffle\", btn, 72, icon, user_opts.shuffle_button}") ~= nil and
-            m_content:find("{\"file_loop\", btn, 74, icon, user_opts.loop_button}") ~= nil and
-            m_content:find("{\"screenshot\", btn, 76, icon, user_opts.screenshot_button}") ~= nil and
-            m_content:find("{\"ontop\", btn, 85, icon, user_opts.ontop_button}") ~= nil and
-            m_content:find("{\"fullscreen\", btn, 98, icon, user_opts.fullscreen_button}") ~= nil,
+            m_content:find("{\"playlist\", btn, 75, icon, playlist_button}") ~= nil and
+            m_content:find("{\"more\", btn, 80, icon, user_opts.more_button ~= false}") ~= nil and
+            m_content:find("{\"fullscreen\", btn, 98, icon, user_opts.fullscreen_button}") ~= nil and
+            m_content:find("{\"shuffle\", btn, 72") == nil and
+            m_content:find("{\"file_loop\", btn, 74") == nil,
             "right group order mismatch")
+
+        -- Panel height narrowed to 58, margin down to 10
+        assert_test("Bottom panel height narrowed (panel_h=58, cy=py+38, seek_cy=py+14, btn=34)",
+            m_content:find("local panel_h = 58") ~= nil and
+            m_content:find("local cy = py %+ 38") ~= nil and
+            m_content:find("local seek_cy = py %+ 14") ~= nil and
+            m_content:find("local btn = 34") ~= nil,
+            "panel height and control positioning mismatch")
+
+        -- Volume slider link updated to left[3] and left[4]
+        assert_test("Volume slider linkage updated to index 3 & 4",
+            m_content:find("if not left%[3%]%.keep then left%[4%]%.keep = false end") ~= nil and
+            m_content:find("if left%[3%]%.keep and left%[4%]%.keep then") ~= nil,
+            "volume linkage mismatch")
 
         -- Title moved to top bar
         assert_test("show_window_title=yes in modernz.conf",
@@ -244,14 +258,167 @@ do
     end
 end
 
+-- -----------------------------------------------------------------------------
+-- 7. Input.conf Context Menu (Track item removed from first level)
+-- -----------------------------------------------------------------------------
+log("\n[TEST 7] Right-click Menu First-level Track Item Removal")
+do
+    local input_file = open_cfg_file("portable_config/input.conf")
+    if input_file then
+        local content = input_file:read("*all")
+        input_file:close()
+        assert_test("input.conf removed first-level track item (#menu: 軌道 #@tracks)",
+            content:find("#menu:%s*軌道%s*#@tracks") == nil,
+            "first-level track item still exists in input.conf")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 8. Glass Shader Transparency & Softness
+-- -----------------------------------------------------------------------------
+log("\n[TEST 8] ModernZ Glass Shader Transparency & Blur Tuning")
+do
+    local modernz_file = open_cfg_file("portable_config/scripts/modernz.lua")
+    local conf_file = open_cfg_file("portable_config/script-opts/modernz.conf")
+    if modernz_file and conf_file then
+        local m_content = modernz_file:read("*all")
+        local c_content = conf_file:read("*all")
+        modernz_file:close()
+        conf_file:close()
+
+        assert_test("GLASS_SHADER and glass_blur_update strength lowered to 0.55",
+            m_content:find("kv%.mzg_strength = \"0.55\"") ~= nil,
+            "mzg_strength not set to 0.55")
+        assert_test("GLASS_SHADER tone lowered to 0.08",
+            m_content:find("kv%.mzg_tone = \"0.08\"") ~= nil,
+            "mzg_tone not set to 0.08")
+        assert_test("modernz.conf glass_opacity=6",
+            c_content:find("glass_opacity=6") ~= nil,
+            "glass_opacity not set to 6")
+        assert_test("modernz.conf panel_margin=10",
+            c_content:find("panel_margin=10") ~= nil,
+            "panel_margin not set to 10")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 9. Thumbfast Precision & EDL URL Extraction
+-- -----------------------------------------------------------------------------
+log("\n[TEST 9] Thumbfast Exact Seek & EDL Extraction")
+do
+    local thumbfast_lua = open_cfg_file("portable_config/scripts/thumbfast.lua")
+    local thumbfast_conf = open_cfg_file("portable_config/script-opts/thumbfast.conf")
+    if thumbfast_lua and thumbfast_conf then
+        local l_content = thumbfast_lua:read("*all")
+        local c_content = thumbfast_conf:read("*all")
+        thumbfast_lua:close()
+        thumbfast_conf:close()
+
+        assert_test("thumbfast.conf exact_seek=auto and exact_seek_delay=0.08",
+            c_content:find("exact_seek=auto") ~= nil and c_content:find("exact_seek_delay=0.08") ~= nil,
+            "thumbfast exact_seek settings mismatch")
+        assert_test("thumbfast.lua extracts EDL url with %length% prefix without comma truncating",
+            l_content:find("url_body:sub%(1,%s*len%)") ~= nil,
+            "thumbfast edl url length-based extraction missing")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 10. Bilibili Live Stream Danmaku Noise Prevention
+-- -----------------------------------------------------------------------------
+log("\n[TEST 10] Bilibili Live Stream Danmaku Noise Prevention")
+do
+    local danmaku_main = open_cfg_file("portable_config/scripts/mpv-danmaku/main.lua")
+    if danmaku_main then
+        local content = danmaku_main:read("*all")
+        danmaku_main:close()
+
+        assert_test("mpv-danmaku/main.lua has is_bili_live_stream helper",
+            content:find("local function is_bili_live_stream") ~= nil,
+            "missing is_bili_live_stream helper")
+        assert_test("extract_bili_cid aborts immediately on live stream",
+            content:find("if is_bili_live_stream%(%s*%) then return nil end") ~= nil,
+            "extract_bili_cid does not block live stream fake CID")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 11. Subtitle Margin Elevation Moderation
+-- -----------------------------------------------------------------------------
+log("\n[TEST 11] Subtitle Margin Elevation Tuning")
+do
+    local modernz_file = open_cfg_file("portable_config/scripts/modernz.lua")
+    if modernz_file then
+        local content = modernz_file:read("*all")
+        modernz_file:close()
+
+        assert_test("sub-pos adjusted by moderate factor (margins.b * 0.6)",
+            content:find("1 %- margins%.b %* 0%.6") ~= nil,
+            "sub-pos scaling factor missing")
+        assert_test("sub-margin-y adjusted by moderate factor (margins.b * H * 0.55)",
+            content:find("margins%.b %* H %* 0%.55") ~= nil,
+            "sub-margin-y scaling factor missing")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 12. Speed Menu Inline Editing & Custom Speed Deletion
+-- -----------------------------------------------------------------------------
+log("\n[TEST 12] Speed Menu Inline Editing & Custom Speed Deletion")
+do
+    local modernz_file = open_cfg_file("portable_config/scripts/modernz.lua")
+    if modernz_file then
+        local content = modernz_file:read("*all")
+        modernz_file:close()
+
+        assert_test("modernz.lua contains start_speed_edit and stop_speed_edit",
+            content:find("start_speed_edit = function%(%)") ~= nil and
+            content:find("stop_speed_edit = function%(silent%)") ~= nil,
+            "missing speed edit functions")
+        assert_test("modernz.lua contains remove_custom_speed",
+            content:find("remove_custom_speed = function%(val%)") ~= nil,
+            "missing remove_custom_speed function")
+        assert_test("render_menu draws window_close on hovered custom speed",
+            content:find("menu%.kind == \"speed\" and item%.is_custom and menu%.hover == i") ~= nil,
+            "missing delete cross rendering in speed menu")
+        assert_test("menu_event supports right-click or cross-click to remove custom speed",
+            content:find("remove_custom_speed%(item%.speed_val%)") ~= nil,
+            "missing delete event handler in menu_event")
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- 13. Top Window Title Capsule Dynamic Width & Observers
+-- -----------------------------------------------------------------------------
+log("\n[TEST 13] Top Window Title Capsule Dynamic Width & Observers")
+do
+    local modernz_file = open_cfg_file("portable_config/scripts/modernz.lua")
+    if modernz_file then
+        local content = modernz_file:read("*all")
+        modernz_file:close()
+
+        assert_test("glass_window_controls measures dynamic raw_title width with glass_window_title",
+            content:find("local raw_title = mp%.get_property%(\"media%-title\"%) or mp%.get_property%(\"title\"%) or \"\"") ~= nil and
+            content:find("estimate_text_width%(raw_title, osc_styles%.glass_window_title%)") ~= nil,
+            "missing dynamic title capsule width calculation")
+        assert_test("windowtitle element uses glass_window_title style under glass_ui",
+            content:find("state%.glass_ui and osc_styles%.glass_window_title or osc_styles%.window_title") ~= nil,
+            "windowtitle element not using glass_window_title style")
+        assert_test("observe_cached watches media-title and title to request_init_resize",
+            content:find("observe_cached%(\"media%-title\", request_init_resize%)") ~= nil and
+            content:find("observe_cached%(\"title\", request_init_resize%)") ~= nil,
+            "missing media-title or title observers")
+    end
+end
+
 log("\n================================================================================")
 log(string.format("  CODE LOGIC SUMMARY: Total %d | Passed: %d | Failed: %d", pass_count + fail_count, pass_count, fail_count))
 log("================================================================================")
 
 -- -----------------------------------------------------------------------------
--- 7. Visual Screenshot Captures & Live GUI Tests
+-- Visual Screenshot Captures & Live GUI Tests
 -- -----------------------------------------------------------------------------
-log("\n[TEST 7] Performing In-Engine Visual Screenshots & GUI Execution")
+log("\n[VISUAL TESTS] Performing In-Engine Visual Screenshots & GUI Execution")
 
 local step = 1
 local function run_visual_steps()
