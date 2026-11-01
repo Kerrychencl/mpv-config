@@ -550,6 +550,7 @@ end
 close_menu = function()
     if not active then return end
     active = false
+    mp.set_property_bool("user-data/danmaku-menu/open", false)
     dragging_slider = nil
     dropdown_open = false
     hovered_element = nil
@@ -1055,6 +1056,7 @@ local function open_menu()
     end
 
     active = true
+    mp.set_property_bool("user-data/danmaku-menu/open", true)
     -- 核心需求：每次打開彈幕面板時，強制重置在第一部分（主設定面板）！
     page = "main"
     dropdown_open = false
@@ -1113,3 +1115,5 @@ mp.register_script_message("danmaku-click", function(x, y)
         on_mouse_down_at(nx, ny)
     end
 end)
+
+mp.set_property_bool("user-data/danmaku-menu/open", false)

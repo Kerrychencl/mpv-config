@@ -111,10 +111,10 @@ local o_defaults = {
 }
 
 -- Nominal reference the whole layout was authored against.
-local BASE_ROW_HEIGHT = 47
-local WINDOW_ITEM_HEIGHT_1080 = 36
-local FULLSCREEN_ITEM_HEIGHT_1080 = 50
-local AUTO_SCALE_MIN = 1.0
+local BASE_ROW_HEIGHT = 32
+local WINDOW_ITEM_HEIGHT_1080 = 32
+local FULLSCREEN_ITEM_HEIGHT_1080 = 38
+local AUTO_SCALE_MIN = 0.4
 local AUTO_SCALE_MAX = 2.8
 
 local o = {}
@@ -659,23 +659,20 @@ local function numeric_or_nil(v)
 end
 
 local function resolve_item_height(ow, oh)
-    local fullscreen = mp.get_property_native('fullscreen')
-    if fullscreen then
-        local explicit = numeric_or_nil(o.menu_item_height_fullscreen)
-        if explicit then return explicit end
-    else
-        local explicit = numeric_or_nil(o.menu_item_height)
-        if explicit then return explicit end
-    end
-
     local h = tonumber(oh) or 1080
     if h <= 0 then h = 1080 end
     local f = clamp(h / 1080, AUTO_SCALE_MIN, AUTO_SCALE_MAX)
 
+    local fullscreen = mp.get_property_native('fullscreen')
     if fullscreen then
+        local explicit = numeric_or_nil(o.menu_item_height_fullscreen)
+        if explicit then return explicit * f end
         return FULLSCREEN_ITEM_HEIGHT_1080 * f
+    else
+        local explicit = numeric_or_nil(o.menu_item_height)
+        if explicit then return explicit * f end
+        return WINDOW_ITEM_HEIGHT_1080 * f
     end
-    return WINDOW_ITEM_HEIGHT_1080 * f
 end
 
 local function ui_scale(ow, oh)

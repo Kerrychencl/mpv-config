@@ -17,5 +17,6 @@ __pycache__/
 *.part
 *.tmp
 *.log
+!prove-it/*.log
 *.bgra
 mpv_btr_port*.txt

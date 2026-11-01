@@ -1,0 +1,54 @@
+================================================================================
+  AUTOMATED VERIFICATION TEST SUITE (MPV / ModernZ / BTR / Menu / SponsorBlock)
+================================================================================
+
+[TEST 1] BTR Live Stream URL Rewriting & EDL Protection
+  [PASS] is_bili_media_url excludes live streams
+  [PASS] rewrite_stream_filename handles edl:// first
+  [PASS] Official live nodes preserved in EDL
+  [PASS] MCDN live nodes rewritten to low-latency gotcha
+
+[TEST 2] BTR Advanced Settings String Format Bug & Safe Rendering
+  [PASS] item.title parameter provided to string.format
+  [PASS] item.desc parameter provided to string.format
+  [PASS] Tab 4 labeled as '節點'
+  [PASS] render_menu wrapped with pcall
+
+[TEST 3] Right-Click Context Menu Sizing & Dynamic Scaling
+  [PASS] menu.lua AUTO_SCALE_MIN is 0.4
+  [PASS] menu.lua BASE_ROW_HEIGHT is 32
+  [PASS] resolve_item_height scales explicit height by f
+  [PASS] menu_style.conf font_size is 20
+  [PASS] menu_style.conf menu_item_height is 32
+  [PASS] menu_style.conf min_width is 240
+  [PASS] menu_style.conf radius is 10
+
+[TEST 4] Danmaku Panel OSC Hiding Fix & Native Menu Integration
+  [PASS] danmaku-menu sets user-data/danmaku-menu/open on open
+  [PASS] danmaku-menu sets user-data/danmaku-menu/open on close
+  [PASS] modernz.lua mouse_leave respects danmaku menu open state
+  [PASS] modernz.lua autohide tick respects danmaku menu open state
+  [PASS] modernz.lua has kind == 'danmaku' menu
+  [PASS] modernz.lua has danmaku submenus (area, opacity, fontsize, speed, font)
+
+[TEST 5] Speed Menu Checkmark Removal
+  [PASS] Speed menu items excluded from menu_check glyph
+
+[TEST 6] SponsorBlock Manual Skip Button Redesign & Dynamic Floating Position
+  [PASS] sb_overlay.z is 2100 (above OSC, below modal menus)
+  [PASS] Skip button uses assdraw:round_rect_cw
+  [PASS] btn_y floats dynamically above user-data/osc/panel_rect
+  [PASS] Observes user-data/osc/visible to reposition immediately
+
+[TEST 7] ModernZ Bottom Panel Button Layout & ModernGlass Styling
+  [PASS] modernz.conf show_window_title=yes
+  [PASS] Bottom panel hides title row (elements.title.visible = false)
+  [PASS] Seekbar spans full panel width across top
+  [PASS] Panel height is 72px with seek_cy = py + 18, cy = py + 46
+  [PASS] Left button group has playlist, audio, sub, vol, volumebar, time_codes
+  [PASS] Center button group has playlist_prev, jump_backward, play_pause, jump_forward, playlist_next
+  [PASS] Right button group has danmaku, speed, shuffle, file_loop, screenshot, ontop, fullscreen
+
+================================================================================
+  TEST SUMMARY: Total 33 | Passed: 33 | Failed: 0
+================================================================================

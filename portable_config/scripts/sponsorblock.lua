@@ -9,6 +9,7 @@
 
 local mp = require 'mp'
 local utils = require 'mp.utils'
+local assdraw = require 'mp.assdraw'
 
 local config_dir = mp.command_native({"expand-path", "~~/"})
 local helper_py = utils.join_path(config_dir, "sponsorblock_shared/sponsor_unified.py")
@@ -190,7 +191,7 @@ local function fetch_segments(url, yt_id, bvid)
 end
 
 local sb_overlay = mp.create_osd_overlay('ass-events')
-sb_overlay.z = 2600
+sb_overlay.z = 2100
 local manual_skip_active = nil
 local manual_skip_btn_rect = nil
 
@@ -233,7 +234,7 @@ local function execute_manual_skip(seg)
 end
 
 local function show_manual_skip(seg)
-    if manual_skip_active == seg then return end
+    if not seg then return end
     manual_skip_active = seg
 
     local ww, wh = mp.get_osd_size()
@@ -241,22 +242,41 @@ local function show_manual_skip(seg)
     sb_overlay.res_x = ww
     sb_overlay.res_y = wh
 
-    local btn_w = 310
-    local btn_h = 42
-    local btn_x = ww - btn_w - 30
-    local btn_y = wh - btn_h - 90
+    local btn_w = 320
+    local btn_h = 38
+    local btn_x = ww - btn_w - 24
+
+    local btn_y = wh - btn_h - 24
+    local osc_visible = mp.get_property_bool("user-data/osc/visible", false)
+    local panel_rect = mp.get_property_native("user-data/osc/panel_rect")
+    if osc_visible and panel_rect and panel_rect.y1 and panel_rect.playresy and panel_rect.playresy > 0 then
+        local osc_top = math.floor(panel_rect.y1 * (wh / panel_rect.playresy))
+        if osc_top > 0 and osc_top < wh then
+            btn_y = math.floor(osc_top - btn_h - 12)
+        end
+    end
+
     manual_skip_btn_rect = { x1 = btn_x, y1 = btn_y, x2 = btn_x + btn_w, y2 = btn_y + btn_h }
 
-    local ass = string.format(
-        "{\\an7\\pos(0,0)\\bord1.5\\3c&HFFFFFF&\\3a&H50&\\1c&H1A1818&\\1a&H18&}{\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}" ..
-        "{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs15\\b1\\fnMicrosoft JhengHei\\1c&H00D482&}⏩ 跳過 %s {\\fs13\\b0\\1c&HFFFFFF&}(按 {\\b1\\1c&HFFDE59&}Tab{\\b0\\1c&HFFFFFF&} 或點擊)",
-        btn_x, btn_y, btn_x + btn_w, btn_y, btn_x + btn_w, btn_y + btn_h, btn_x, btn_y + btn_h,
-        math.floor(btn_x + btn_w / 2), math.floor(btn_y + btn_h / 2),
-        seg.name
-    )
+    local ass = assdraw.ass_new()
+    -- 背景與細邊框 (ModernGlass 質感暗色微透半透明圓角膠囊)
+    ass:new_event()
+    ass:append("{\\pos(0,0)\\bord1.2\\3c&HFFFFFF&\\3a&H80&\\1c&H161618&\\1a&H18&}")
+    ass:draw_start()
+    ass:round_rect_cw(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, 8)
+    ass:draw_stop()
+
+    -- 內層文字
+    local cx = math.floor(btn_x + btn_w / 2)
+    local cy = math.floor(btn_y + btn_h / 2)
+    ass:new_event()
+    ass:append(string.format(
+        "{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs14\\b1\\fnMicrosoft JhengHei\\1c&H00D482&}⏩ 跳過 %s {\\fs12\\b0\\1c&HFFFFFF&}(按 {\\b1\\1c&HFFDE59&}Tab{\\b0\\1c&HFFFFFF&} 或點擊)",
+        cx, cy, seg.name
+    ))
 
     sb_overlay.hidden = false
-    sb_overlay.data = ass
+    sb_overlay.data = ass.text
     sb_overlay:update()
 
     mp.set_mouse_area(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, MANUAL_SKIP_SECTION)
@@ -269,9 +289,13 @@ end
 
 mp.observe_property("osd-dimensions", "native", function()
     if manual_skip_active then
-        local seg = manual_skip_active
-        manual_skip_active = nil
-        show_manual_skip(seg)
+        show_manual_skip(manual_skip_active)
+    end
+end)
+
+mp.observe_property("user-data/osc/visible", "bool", function(_, vis)
+    if manual_skip_active then
+        show_manual_skip(manual_skip_active)
     end
 end)
 
