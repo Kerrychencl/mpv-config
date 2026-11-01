@@ -285,7 +285,7 @@ local function is_bili_media_url(url)
         return false
     end
     if is_bili_live_url(url) then
-        return true
+        return false
     end
     if url:find("bilivideo%.com") or url:find("bilivideo%.cn") or url:find("akamaized%.net") or url:find("/upgcxcode/") then
         return true
@@ -314,32 +314,18 @@ local function rewrite_stream_filename(stream_path)
     local port = 0
     local engine_mode = settings.engine_mode
 
-    -- 1. B站直播串流優化 (攔截 P2P/MCDN，替換為官方低延遲直播邊緣節點)
-    if is_bili_live_url(stream_path) and settings.live_acceleration then
-        local raw_url, edl_props = stream_path:match("^(https?://.-)(,%a+=.*)$")
-        if not raw_url then raw_url = stream_path edl_props = "" end
-
-        local live_cdn = "d1--cn-gotcha01.bilivideo.com"
-        local clean_url = raw_url:gsub("://[^/]+", "://" .. live_cdn, 1)
-        clean_url = clean_url:gsub("[?&]os=mcdn", ""):gsub("[?&]p2p_type=%d+", ""):gsub("[?&]backup_url=[^&]+", "")
-
-        runtime.is_accelerated = true
-        runtime.is_live = true
-        runtime.original_host = raw_url:match("://([^/:]+)") or ""
-        runtime.target_host = live_cdn
-        runtime.mode_used = "direct"
-        runtime.tracks_modified = 1
-        return clean_url .. edl_props, 1
-    end
-
-    if engine_mode == "ripper" then
-        port = ensure_engine_running()
-        if not port then
-            engine_mode = "direct"
-        end
-    end
-
+    -- 處理 EDL 串流 (包含 VOD 多音軌/視軌分離或 Live 直播)
     if stream_path:find("^edl://") then
+        local is_live_stream = false
+        local live_cdn = "d1--cn-gotcha01.bilivideo.com"
+
+        if engine_mode == "ripper" then
+            port = ensure_engine_running()
+            if not port then
+                engine_mode = "direct"
+            end
+        end
+
         local new_edl = stream_path:gsub('(%%)(%d+)(%%)(https?://[^;]+)', function(p1, len_str, p2, entry_str)
             local url_len = tonumber(len_str)
             local raw_url = ""
@@ -355,7 +341,24 @@ local function rewrite_stream_filename(stream_path)
                 end
             end
 
-            if is_bili_media_url(raw_url) then
+            -- 1. 直播處理
+            if is_bili_live_url(raw_url) then
+                is_live_stream = true
+                local this_orig_host = raw_url:match("://([^/:]+)") or ""
+                if orig_host == "" then orig_host = this_orig_host end
+
+                local is_mcdn = raw_url:find("mcdn%.") or raw_url:find("[?&]os=mcdn") or raw_url:find("/v1/resource/")
+                if settings.live_acceleration and is_mcdn then
+                    local clean_url = raw_url:gsub("://[^/]+", "://" .. live_cdn, 1)
+                    clean_url = clean_url:gsub("[?&]os=mcdn", ""):gsub("[?&]p2p_type=%d+", ""):gsub("[?&]backup_url=[^&]+", "")
+                    count = count + 1
+                    return '%' .. #clean_url .. '%' .. clean_url .. edl_props
+                else
+                    -- 原生官方直播節點 (gotcha, live-bvc 等)，保持不變
+                    return '%' .. #raw_url .. '%' .. raw_url .. edl_props
+                end
+            elseif is_bili_media_url(raw_url) then
+                -- 2. VOD 點播處理
                 local this_orig_host = raw_url:match("://([^/:]+)") or ""
                 if orig_host == "" then orig_host = this_orig_host end
                 local target_host = resolve_target_host(this_orig_host)
@@ -375,7 +378,22 @@ local function rewrite_stream_filename(stream_path)
             return p1 .. len_str .. p2 .. entry_str
         end)
 
-        if count > 0 then
+        if is_live_stream then
+            runtime.is_live = true
+            runtime.original_host = orig_host
+            runtime.mode_used = "direct"
+            if count > 0 then
+                runtime.is_accelerated = true
+                runtime.target_host = live_cdn
+                runtime.tracks_modified = count
+                return new_edl, count
+            else
+                runtime.is_accelerated = false
+                runtime.target_host = orig_host
+                runtime.tracks_modified = 0
+                return stream_path, 0
+            end
+        elseif count > 0 then
             local chosen_target = resolve_target_host(orig_host)
             runtime.is_accelerated = true
             runtime.is_live = false
@@ -385,7 +403,45 @@ local function rewrite_stream_filename(stream_path)
             runtime.tracks_modified = count
             return new_edl, count
         end
-    elseif is_bili_media_url(stream_path) then
+        return stream_path, 0
+    end
+
+    -- 單一 URL 直播串流優化 (攔截 P2P/MCDN，替換為官方低延遲直播邊緣節點)
+    if is_bili_live_url(stream_path) then
+        local raw_url, edl_props = stream_path:match("^(https?://.-)(,%a+=.*)$")
+        if not raw_url then raw_url = stream_path edl_props = "" end
+        orig_host = raw_url:match("://([^/:]+)") or ""
+        runtime.is_live = true
+        runtime.original_host = orig_host
+        runtime.mode_used = "direct"
+
+        local is_mcdn = raw_url:find("mcdn%.") or raw_url:find("[?&]os=mcdn") or raw_url:find("/v1/resource/")
+        if settings.live_acceleration and is_mcdn then
+            local live_cdn = "d1--cn-gotcha01.bilivideo.com"
+            local clean_url = raw_url:gsub("://[^/]+", "://" .. live_cdn, 1)
+            clean_url = clean_url:gsub("[?&]os=mcdn", ""):gsub("[?&]p2p_type=%d+", ""):gsub("[?&]backup_url=[^&]+", "")
+
+            runtime.is_accelerated = true
+            runtime.target_host = live_cdn
+            runtime.tracks_modified = 1
+            return clean_url .. edl_props, 1
+        else
+            runtime.is_accelerated = false
+            runtime.target_host = orig_host
+            runtime.tracks_modified = 0
+            return stream_path, 0
+        end
+    end
+
+    -- 單一 URL VOD 串流
+    if is_bili_media_url(stream_path) then
+        if engine_mode == "ripper" then
+            port = ensure_engine_running()
+            if not port then
+                engine_mode = "direct"
+            end
+        end
+
         local raw_url, edl_props = stream_path:match("^(https?://.-)(,%a+=.*)$")
         if not raw_url then raw_url = stream_path edl_props = "" end
         orig_host = raw_url:match("://([^/:]+)") or ""
@@ -763,7 +819,7 @@ local function render_advanced_page(ass, x0, y0, w, h)
         { id = "network",  name = "網絡" },
         { id = "buffer",   name = "緩衝" },
         { id = "features", name = "功能" },
-        { id = "nodes",    name = "界面" },
+        { id = "nodes",    name = "節點" },
     }
     local tab_w = math.floor((card_w - 18) / 4)
     local tab_h = 30
@@ -1006,9 +1062,9 @@ local function render_advanced_page(ass, x0, y0, w, h)
             ass:draw_stop()
 
             ass:new_event()
-            ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs14\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%s", x0 + 34, fy + 16))
+            ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs14\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%s", x0 + 34, fy + 16, item.title))
             ass:new_event()
-            ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs10\\fnMicrosoft JhengHei\\1c&H888888&}%s", x0 + 34, fy + 36))
+            ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs10\\fnMicrosoft JhengHei\\1c&H888888&}%s", x0 + 34, fy + 36, item.desc))
 
             draw_switch_toggle(ass, x0 + 20 + card_w - 56, fy + 12, item.val, item.id)
 
@@ -1111,36 +1167,42 @@ local function render_menu()
         return
     end
 
-    local x0, y0, w, h, ww, wh = get_card_pos()
-    local ass = assdraw.ass_new()
-    buttons = {}
+    local ok, err = pcall(function()
+        local x0, y0, w, h, ww, wh = get_card_pos()
+        local ass = assdraw.ass_new()
+        buttons = {}
 
-    -- 1. 背景暗層
-    ass:new_event()
-    ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&H70&}")
-    ass:draw_start()
-    ass:rect_cw(0, 0, ww, wh)
-    ass:draw_stop()
+        -- 1. 背景暗層
+        ass:new_event()
+        ass:append("{\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&H70&}")
+        ass:draw_start()
+        ass:rect_cw(0, 0, ww, wh)
+        ass:draw_stop()
 
-    -- 2. 主卡片圓角背景 (#18181A) 與邊框 (#35353A)
-    ass:new_event()
-    ass:append("{\\pos(0,0)\\bord1.5\\3c&H3A3535&\\1c&H1A1818&\\1a&H10&}")
-    ass:draw_start()
-    ass:round_rect_cw(x0, y0, x0 + w, y0 + h, 14)
-    ass:draw_stop()
+        -- 2. 主卡片圓角背景 (#18181A) 與邊框 (#35353A)
+        ass:new_event()
+        ass:append("{\\pos(0,0)\\bord1.5\\3c&H3A3535&\\1c&H1A1818&\\1a&H10&}")
+        ass:draw_start()
+        ass:round_rect_cw(x0, y0, x0 + w, y0 + h, 14)
+        ass:draw_stop()
 
-    if runtime.page == "advanced" then
-        render_advanced_page(ass, x0, y0, w, h)
-    else
-        render_main_page(ass, x0, y0, w, h)
+        if runtime.page == "advanced" then
+            render_advanced_page(ass, x0, y0, w, h)
+        else
+            render_main_page(ass, x0, y0, w, h)
+        end
+
+        osd.res_x = ww
+        osd.res_y = wh
+        osd.z = 2500
+        osd.hidden = false
+        osd.data = ass.text
+        osd:update()
+    end)
+
+    if not ok then
+        mp.msg.error("[BTR] render_menu error: " .. tostring(err))
     end
-
-    osd.res_x = ww
-    osd.res_y = wh
-    osd.z = 2500
-    osd.hidden = false
-    osd.data = ass.text
-    osd:update()
 end
 
 local function on_mouse_move()

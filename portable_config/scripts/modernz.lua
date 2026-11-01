@@ -2139,6 +2139,7 @@ local function update_margins()
     end
 
     mp.set_property_native("user-data/osc/margins", margins)
+    mp.set_property_bool("user-data/osc/visible", bottom_vis)
 end
 
 local tick
@@ -3612,6 +3613,227 @@ local function menu_items(kind, arg)
             items[#items + 1] = {label = speed_label(v), active = math.abs(current - v) < 0.001,
                 action = function() mp.commandv("set", "speed", tostring(v)) end}
         end
+    elseif kind == "danmaku" then
+        title = "彈幕設定"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local d_settings = {
+            enabled = true,
+            display_area = 0.75,
+            opacity = 0.8,
+            fontsize_pct = 1.0,
+            speed_idx = 3,
+            font = "SimHei",
+            bold = true
+        }
+        local f = io.open(sp, "r")
+        if f then
+            local content = f:read("*all")
+            f:close()
+            local parsed = utils.parse_json(content)
+            if parsed then
+                for k, v in pairs(parsed) do d_settings[k] = v end
+            end
+        end
+
+        local function save_d_settings(s)
+            local sf = io.open(sp, "w")
+            if sf then
+                sf:write(utils.format_json(s))
+                sf:close()
+            end
+            mp.commandv("script-message", "danmaku-reconvert")
+        end
+
+        items[#items + 1] = {
+            label = "顯示區域",
+            meta = string.format("%d%%", math.floor(d_settings.display_area * 100 + 0.5)),
+            submenu = "danmaku_area"
+        }
+        items[#items + 1] = {
+            label = "不透明度",
+            meta = string.format("%d%%", math.floor(d_settings.opacity * 100 + 0.5)),
+            submenu = "danmaku_opacity"
+        }
+        items[#items + 1] = {
+            label = "字體大小",
+            meta = string.format("%d%%", math.floor(d_settings.fontsize_pct * 100 + 0.5)),
+            submenu = "danmaku_fontsize"
+        }
+        items[#items + 1] = {
+            label = "彈幕速度",
+            meta = ({"極慢", "慢", "正常", "快", "極快"})[d_settings.speed_idx] or "正常",
+            submenu = "danmaku_speed"
+        }
+        items[#items + 1] = {
+            label = "字體選擇",
+            meta = d_settings.font or "SimHei",
+            submenu = "danmaku_font"
+        }
+        items[#items + 1] = {
+            label = "字體加粗",
+            active = d_settings.bold,
+            action = function()
+                d_settings.bold = not d_settings.bold
+                save_d_settings(d_settings)
+            end
+        }
+        items[#items + 1] = {
+            label = "開啟高級彈幕面板...",
+            sep = true,
+            action = function()
+                close_menu()
+                mp.commandv("script-message", "danmaku-open")
+            end
+        }
+    elseif kind == "danmaku_area" then
+        title = "顯示區域"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local cur = 0.75
+        local f = io.open(sp, "r")
+        if f then
+            local parsed = utils.parse_json(f:read("*all"))
+            f:close()
+            if parsed and parsed.display_area then cur = parsed.display_area end
+        end
+        local areas = {
+            { val = 0.25, label = "1/4 屏 (25%)" },
+            { val = 0.50, label = "半屏 (50%)" },
+            { val = 0.75, label = "3/4 屏 (75%)" },
+            { val = 1.00, label = "全屏 (100%)" },
+        }
+        for _, opt in ipairs(areas) do
+            items[#items + 1] = {
+                label = opt.label,
+                active = math.abs(cur - opt.val) < 0.05,
+                action = function()
+                    local rf = io.open(sp, "r")
+                    local s = rf and utils.parse_json(rf:read("*all")) or {}
+                    if rf then rf:close() end
+                    s.display_area = opt.val
+                    local wf = io.open(sp, "w")
+                    if wf then wf:write(utils.format_json(s)) wf:close() end
+                    mp.commandv("script-message", "danmaku-reconvert")
+                end
+            }
+        end
+    elseif kind == "danmaku_opacity" then
+        title = "不透明度"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local cur = 0.8
+        local f = io.open(sp, "r")
+        if f then
+            local parsed = utils.parse_json(f:read("*all"))
+            f:close()
+            if parsed and parsed.opacity then cur = parsed.opacity end
+        end
+        local opacities = { 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3 }
+        for _, val in ipairs(opacities) do
+            items[#items + 1] = {
+                label = string.format("%d%%", math.floor(val * 100)),
+                active = math.abs(cur - val) < 0.06,
+                action = function()
+                    local rf = io.open(sp, "r")
+                    local s = rf and utils.parse_json(rf:read("*all")) or {}
+                    if rf then rf:close() end
+                    s.opacity = val
+                    local wf = io.open(sp, "w")
+                    if wf then wf:write(utils.format_json(s)) wf:close() end
+                    mp.commandv("script-message", "danmaku-reconvert")
+                end
+            }
+        end
+    elseif kind == "danmaku_fontsize" then
+        title = "字體大小"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local cur = 1.0
+        local f = io.open(sp, "r")
+        if f then
+            local parsed = utils.parse_json(f:read("*all"))
+            f:close()
+            if parsed and parsed.fontsize_pct then cur = parsed.fontsize_pct end
+        end
+        local sizes = { 0.75, 0.9, 1.0, 1.15, 1.3, 1.5, 1.75 }
+        for _, val in ipairs(sizes) do
+            items[#items + 1] = {
+                label = string.format("%d%%", math.floor(val * 100)),
+                active = math.abs(cur - val) < 0.06,
+                action = function()
+                    local rf = io.open(sp, "r")
+                    local s = rf and utils.parse_json(rf:read("*all")) or {}
+                    if rf then rf:close() end
+                    s.fontsize_pct = val
+                    local wf = io.open(sp, "w")
+                    if wf then wf:write(utils.format_json(s)) wf:close() end
+                    mp.commandv("script-message", "danmaku-reconvert")
+                end
+            }
+        end
+    elseif kind == "danmaku_speed" then
+        title = "彈幕速度"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local cur = 3
+        local f = io.open(sp, "r")
+        if f then
+            local parsed = utils.parse_json(f:read("*all"))
+            f:close()
+            if parsed and parsed.speed_idx then cur = parsed.speed_idx end
+        end
+        local speeds = {
+            { idx = 1, label = "極慢 (16秒)" },
+            { idx = 2, label = "慢 (13秒)" },
+            { idx = 3, label = "正常 (10秒)" },
+            { idx = 4, label = "快 (7.5秒)" },
+            { idx = 5, label = "極快 (5秒)" },
+        }
+        for _, opt in ipairs(speeds) do
+            items[#items + 1] = {
+                label = opt.label,
+                active = cur == opt.idx,
+                action = function()
+                    local rf = io.open(sp, "r")
+                    local s = rf and utils.parse_json(rf:read("*all")) or {}
+                    if rf then rf:close() end
+                    s.speed_idx = opt.idx
+                    local sec_map = {16.0, 13.0, 10.0, 7.5, 5.0}
+                    s.speed_seconds = sec_map[opt.idx] or 10.0
+                    local wf = io.open(sp, "w")
+                    if wf then wf:write(utils.format_json(s)) wf:close() end
+                    mp.commandv("script-message", "danmaku-reconvert")
+                end
+            }
+        end
+    elseif kind == "danmaku_font" then
+        title = "字體選擇"
+        local config_dir = mp.command_native({"expand-path", "~~/"})
+        local sp = utils.join_path(config_dir, "danmaku_settings.json")
+        local cur = "SimHei"
+        local f = io.open(sp, "r")
+        if f then
+            local parsed = utils.parse_json(f:read("*all"))
+            f:close()
+            if parsed and parsed.font then cur = parsed.font end
+        end
+        local fonts = { "SimHei", "Microsoft YaHei", "Microsoft JhengHei", "Source Han Sans SC", "SimSun" }
+        for _, font in ipairs(fonts) do
+            items[#items + 1] = {
+                label = font,
+                active = cur == font,
+                action = function()
+                    local rf = io.open(sp, "r")
+                    local s = rf and utils.parse_json(rf:read("*all")) or {}
+                    if rf then rf:close() end
+                    s.font = font
+                    local wf = io.open(sp, "w")
+                    if wf then wf:write(utils.format_json(s)) wf:close() end
+                    mp.commandv("script-message", "danmaku-reconvert")
+                end
+            }
+        end
     elseif kind == "more" then
         title = locale.more
         local function add(item) items[#items + 1] = item end
@@ -4194,11 +4416,11 @@ render_menu = function(master_ass, m)
                 end
                 glyph(item.icon, ix, cy, MENU.icon, edge)
             end
-            if item.active and not menu.covers then
+            if item.active and not menu.covers and menu.kind ~= "speed" then
                 glyph("menu_check", right - 6, cy, MENU.glyph, edge)
                 trail = right - 18
             end
-        elseif item.active then
+        elseif item.active and menu.kind ~= "speed" then
             glyph("menu_check", inner_x + 15, cy, MENU.glyph, edge)
         end
         if item.submenu then
@@ -4285,6 +4507,8 @@ local menu_for_command = {
     ["script-binding select/select-speed"] = "speed",
     ["script-binding speed_menu/toggle"] = "speed",
     ["script-binding modernz/speed_menu/toggle"] = "speed",
+    ["script-binding danmaku_menu/toggle_menu"] = "danmaku",
+    ["script-binding modernz/danmaku_menu/toggle"] = "danmaku",
 }
 
 --
@@ -4677,15 +4901,14 @@ layouts["default"] = function ()
     local radius = math.max(8, user_opts.panel_radius)
     local inset = math.max(6, radius - btn / 2)
     local pad_x = math.max(18, inset + 8)
-    local show_title = user_opts.show_title
-    local title_fs = user_opts.title_font_size
-    local seek_off = show_title and (14 + title_fs + 18) or 24   -- panel top to seekbar centre
-    local panel_h = seek_off + 32 + inset + btn / 2
+
+    -- Title is placed at the top bar (window_title_panel), bottom panel has seekbar on top and controls below
+    local panel_h = 72
     local py = H - margin - panel_h
     local x0, x1 = px + pad_x, px + panel_w - pad_x
     local inner_w = x1 - x0
-    local seek_cy = py + seek_off
-    local cy = py + panel_h - inset - btn / 2
+    local seek_cy = py + 18
+    local cy = py + 46
 
     state.glass_ui = true
     state.tooltip_y = py - 9
@@ -4701,62 +4924,14 @@ layouts["default"] = function ()
 
     local lo, ne
 
-    -- title row: title on the left, current chapter (muted, opens the chapter list) on the right
-    local chapter_index = (state.chapter or -1) >= 0
-    local show_chapter = user_opts.show_chapter_title and chapter_index and user_opts.chapter_fmt ~= "no"
-    local baseline = py + 14 + title_fs
-    local chapter_w = show_chapter and math.floor(inner_w * 0.36) or 0
-    local title_w = math.max(0, inner_w - (show_chapter and chapter_w + 16 or 0))
-    elements["title"].visible = show_title
-    if show_title then
-        lo = add_layout("title")
-        lo.geometry = {x = x0, y = baseline, an = 1, w = title_w, h = title_fs}
-        lo.layer = 48
-        lo.alpha[3] = 0
-        lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.glass_title, x0, py, x0 + title_w, baseline + 6)
-        state.title_max_w = title_w
-    end
-    if user_opts.show_chapter_title then
-        elements["chapter_title"].visible = show_title and show_chapter
-        if show_title and show_chapter then
-            lo = add_layout("chapter_title")
-            lo.geometry = {x = x1, y = baseline, an = 3, w = chapter_w, h = user_opts.chapter_title_font_size}
-            lo.layer = 48
-            lo.alpha[3] = 0
-            lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.glass_chapter, x1 - chapter_w, py, x1, baseline + 6)
-            state.chapter_title_max_w = chapter_w
-        end
-    end
+    -- Hide bottom title row elements; title is presented in top bar
+    elements["title"].visible = false
+    elements["chapter_title"].visible = false
+    elements["time_pos"].visible = false
+    elements["time_end"].visible = false
 
-    -- seek row: elapsed | seekbar | duration (or remaining)
-    local has_time = (state.duration or 0) > 0
-    local function time_sample(sec)
-        local has_h = sec >= 3600 or user_opts.time_format == "fixed"
-        local base = has_h and (sec >= 36000 and "88" or "8") .. ":88:88" or (sec >= 600 and "88" or "8") .. ":88"
-        return base .. (state.tc_ms and ".888" or "")
-    end
-    local tw = 0
-    if has_time then
-        local sample = time_sample(math.max(state.duration or 0, frame_number("playback-time", 0) or 0))
-        tw = math.ceil(estimate_text_width("-" .. sample, osc_styles.glass_time)) + 2
-        if tw <= 2 then tw = 44 end
-    end
-    elements["time_pos"].visible = has_time
-    elements["time_end"].visible = has_time
+    -- seek row: full width seekbar across top of panel
     local sx0, sx1 = x0, x1
-    if has_time then
-        lo = add_layout("time_pos")
-        lo.geometry = {x = x0, y = seek_cy, an = 4, w = tw, h = user_opts.time_font_size}
-        lo.layer = 48
-        lo.alpha[3] = 0
-        lo.style = osc_styles.glass_time
-        lo = add_layout("time_end")
-        lo.geometry = {x = x1, y = seek_cy, an = 6, w = tw, h = user_opts.time_font_size}
-        lo.layer = 48
-        lo.alpha[3] = 0
-        lo.style = osc_styles.glass_time_muted
-        sx0, sx1 = x0 + tw + 12, x1 - tw - 12
-    end
     local seek_w = math.max(10, sx1 - sx0)
 
     ne = new_element("seekbarbg", "box")
@@ -4788,7 +4963,7 @@ layouts["default"] = function ()
         lo.slider.tooltip_an = 0
     end
 
-    -- controls row: volume on the left, transport in the middle, tracks and the rest on the right
+    -- controls row:
     local audio_track = state.audio_track_count > 0
     local subtitle_track = state.sub_track_count > 0
     local have_pl = state.playlist_count > 1
@@ -4797,10 +4972,14 @@ layouts["default"] = function ()
     local nextprev = user_opts.track_nextprev_buttons
     local icon, transport = osc_styles.glass_icon, osc_styles.glass_transport
 
-    -- name, width, keep priority (higher stays longer), style, wanted, gap after
+    local time_codes_w = math.ceil(get_time_codes_width()) + 8
     local left = {
+        {"playlist", btn, 75, icon, playlist_button, 4},
+        {"audio_track", btn, 78, icon, audio_track and user_opts.audio_tracks_button, 4},
+        {"sub_track", btn, 79, icon, subtitle_track and user_opts.subtitles_button, 4},
         {"vol_ctrl", btn, 85, icon, audio_track and user_opts.volume_control, 0},
-        {"volumebar", 72, 25, nil, audio_track and user_opts.volume_control, 4},
+        {"volumebar", 72, 25, nil, audio_track and user_opts.volume_control, 8},
+        {"time_codes", time_codes_w, 95, osc_styles.glass_time, (state.duration or 0) > 0, 4},
     }
     local center = {
         {"chapter_prev", btn, 30, transport, chapter_skip},
@@ -4816,10 +4995,10 @@ layouts["default"] = function ()
         {"download", btn, 10, icon, state.is_url and user_opts.download_button},
         {"danmaku", btn, 82, icon, state.danmaku_present and user_opts.danmaku_button},
         {"speed", 46, 81, osc_styles.glass_speed, user_opts.speed_button},
-        {"sub_track", btn, 80, icon, subtitle_track and user_opts.subtitles_button},
-        {"audio_track", btn, 75, icon, audio_track and user_opts.audio_tracks_button},
-        {"playlist", btn, 65, icon, playlist_button},
-        {"more", btn, 90, icon, true},
+        {"shuffle", btn, 72, icon, user_opts.shuffle_button},
+        {"file_loop", btn, 74, icon, user_opts.loop_button},
+        {"screenshot", btn, 76, icon, user_opts.screenshot_button},
+        {"ontop", btn, 85, icon, user_opts.ontop_button},
         {"fullscreen", btn, 98, icon, user_opts.fullscreen_button},
     }
     local groups = {left, center, right}
@@ -4863,8 +5042,8 @@ layouts["default"] = function ()
             victim.keep = false
         end
     end
-    -- the volume slider goes with its button
-    if not left[1].keep then left[2].keep = false end
+    -- the volume slider goes with its button (index 4 & 5)
+    if not left[4].keep then left[5].keep = false end
 
     local function place(it, x)
         local name, w, _, style = it[1], it[2], it[3], it[4]
@@ -4884,6 +5063,15 @@ layouts["default"] = function ()
             lo.slider.gap = 4
             lo.slider.radius = 2
             lo.slider.tooltip_an = 2
+            return
+        elseif name == "time_codes" then
+            lo = add_layout(name)
+            lo.geometry = {x = x + 4, y = cy, an = 4, w = w, h = user_opts.time_font_size}
+            lo.layer = 48
+            lo.alpha[3] = 0
+            lo.style = osc_styles.glass_time
+            local e = elements[name]
+            e.hover_radius, e.hover_pad = 0, 0
             return
         end
         lo = add_layout(name)
@@ -4922,7 +5110,7 @@ layouts["default"] = function ()
     lay(right, row_x1 - width(right))
 
     -- the volume button's highlight and wheel area cover its slider too
-    if left[1].keep and left[2].keep then
+    if left[4].keep and left[5].keep then
         local vc = elements["vol_ctrl"].layout.geometry
         local left_edge = vc.x - btn / 2
         elements["vol_ctrl"].hover_box = {x1 = left_edge, y1 = cy - btn / 2, x2 = left_edge + btn + 4 + 72 + 8, y2 = cy + btn / 2}
@@ -6761,7 +6949,7 @@ end
 
 local function mouse_leave()
     -- leaving the bottom bar's area with a menu open is fine, as long as the pointer is in the window
-    if menu then
+    if menu or mp.get_property_bool("user-data/danmaku-menu/open", false) then
         local mp_pos = mp.get_property_native("mouse-pos")
         if mp_pos and mp_pos.hover then return end
     end
@@ -6978,7 +7166,7 @@ local function process_event(source, what)
                 elseif user_opts.visibility ~= "always" and user_opts.deadzone_hide ~= "timeout" then
                     hide_wc()
                 end
-                if mouse_in_area("showhide") or menu then
+                if mouse_in_area("showhide") or menu or mp.get_property_bool("user-data/danmaku-menu/open", false) then
                     show_osc()
                 elseif user_opts.visibility ~= "always" and not state.keeponpause_active and user_opts.deadzone_hide ~= "timeout" then
                     hide_osc()
@@ -7166,7 +7354,7 @@ local function render()
     end
 
     if state.hide_timer then state.hide_timer.timeout = math.huge end
-    if menu then state.showtime = now end -- an open menu keeps the controls up
+    if menu or mp.get_property_bool("user-data/danmaku-menu/open", false) then state.showtime = now end -- an open menu keeps the controls up
     if not state.keeponpause_active then
         run_autohide("showtime", hide_osc, osc_areas)
     end
@@ -7693,6 +7881,19 @@ mp.register_script_message("speed_menu/step_down", function() adjust_speed(-0.05
 mp.register_script_message("speed_menu/reset", function()
     mp.set_property("speed", "1.0")
     mp.osd_message("倍速: 1.0x", 1)
+end)
+mp.add_key_binding(nil, "danmaku_menu/toggle", function()
+    if state.menu and state.menu.kind == "danmaku" then
+        close_menu()
+    else
+        open_menu("danmaku", "danmaku")
+    end
+end)
+mp.register_script_message("danmaku_menu/toggle", function()
+    if state.menu and state.menu.kind == "danmaku" then close_menu() else open_menu("danmaku", "danmaku") end
+end)
+mp.register_script_message("modernz/danmaku_menu/toggle", function()
+    if state.menu and state.menu.kind == "danmaku" then close_menu() else open_menu("danmaku", "danmaku") end
 end)
 mp.register_script_message("osc-idlescreen", idlescreen_visibility)
 mp.register_script_message("thumbfast-info", function(json)
