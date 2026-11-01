@@ -2100,7 +2100,7 @@ local function update_margins()
             local raise_percent = margins.b * 100
             -- only raise if subs are low enough that they would overlap the OSC
             if state.user_subpos >= (100 - raise_percent) then
-                local adjusted = math.floor((1 - margins.b * 0.6) * 100)
+                local adjusted = math.floor((1 - margins.b * 0.38) * 100)
                 if adjusted < 0 then adjusted = state.user_subpos end
                 state.osc_adjusted_subpos = adjusted
                 mp.set_property_number("sub-pos", adjusted)
@@ -2111,7 +2111,7 @@ local function update_margins()
 
             -- Also lift ASS/image/text subtitles moderately using sub-margin-y
             local H = (osc_param.unscaled_y and osc_param.unscaled_y > 0) and osc_param.unscaled_y or ((state.osd_dimensions and state.osd_dimensions.h) or 720)
-            local osc_bar_h = math.floor(margins.b * H * 0.55 + 0.5)
+            local osc_bar_h = math.floor(margins.b * H * 0.38 + 0.5)
             if osc_bar_h > 0 then
                 state.osc_adjusted_sub_margin_y = (state.user_sub_margin_y or 0) + osc_bar_h
                 mp.set_property_number("sub-margin-y", state.osc_adjusted_sub_margin_y)
@@ -3204,9 +3204,9 @@ end
 local menu = nil          -- the open menu: {kind, title, items, anchor, scroll, hover, pressed, back, t0, geo}
 local menu_closing = nil  -- a menu fading away after it was closed
 local menu_frame = 0      -- bumped once per render, so a menu's geometry is worked out once per frame
-local close_menu, open_menu, render_menu, menu_event, menu_visual_rect, menu_covers_sync, menu_cover_ready, speed_label, adjust_speed
+local close_menu, open_menu, render_menu, menu_event, menu_visual_rect, menu_covers_sync, menu_cover_ready, speed_label, adjust_speed, start_speed_edit, stop_speed_edit, commit_speed_edit, remove_custom_speed, speed_edit_state
 do -- (in a block: the main chunk is close to Lua's limit of 200 locals)
-local SPEEDS, prompt_custom_speed, add_custom_speed, load_speed_presets, save_speed_presets, speed_edit_state, start_speed_edit, stop_speed_edit, is_default_speed, remove_custom_speed
+local SPEEDS, prompt_custom_speed, add_custom_speed, load_speed_presets, save_speed_presets, is_default_speed
 
 local MENU = {row_h = 32, sep_h = 9, header_h = 32, pad = 7, radius = 24, fs = 14, meta_fs = 12.5, title_fs = 12.5, glyph = 16, icon = 18}
 
@@ -3299,7 +3299,7 @@ remove_custom_speed = function(val)
         save_speed_presets()
         mp.osd_message(string.format("已刪除倍速: %s", speed_label(val)), 1.5)
         if menu and menu.kind == "speed" then
-            open_menu("speed", menu.anchor or "speed", {scroll = menu.scroll})
+            open_menu("speed", menu.anchor or "speed", {reload = true, scroll = menu.scroll})
         end
     end
 end
@@ -3315,11 +3315,11 @@ stop_speed_edit = function(silent)
     end
     speed_edit_keys = {}
     if not silent and menu and menu.kind == "speed" then
-        open_menu("speed", menu.anchor or "speed", {scroll = menu.scroll})
+        open_menu("speed", menu.anchor or "speed", {reload = true, scroll = menu.scroll})
     end
 end
 
-local function commit_speed_edit()
+commit_speed_edit = function()
     local text = speed_edit_state.text
     local num = tonumber(text:match("[%d%.]+"))
     stop_speed_edit(true)
@@ -3329,7 +3329,7 @@ local function commit_speed_edit()
         mp.osd_message("無效的倍速數值", 2)
     end
     if menu and menu.kind == "speed" then
-        open_menu("speed", "speed")
+        open_menu("speed", menu.anchor or "speed", {reload = true, scroll = menu.scroll})
     end
 end
 
@@ -3384,7 +3384,7 @@ start_speed_edit = function()
     mp.add_forced_key_binding("ESC", "speed-edit-esc", function() stop_speed_edit(false) end)
 
     if menu and menu.kind == "speed" then
-        open_menu("speed", menu.anchor or "speed", {scroll = menu.scroll})
+        open_menu("speed", menu.anchor or "speed", {reload = true, scroll = menu.scroll})
     end
 end
 
@@ -3705,6 +3705,7 @@ local function menu_items(kind, arg)
         if speed_edit_state and speed_edit_state.active then
             items[#items + 1] = {
                 is_editing = true,
+                keep_menu = true,
                 label = (speed_edit_state.text == "" and "_" or (speed_edit_state.text .. "|")),
                 action = function() end
             }
@@ -3712,6 +3713,7 @@ local function menu_items(kind, arg)
             items[#items + 1] = {
                 icon = glyph_of(icons.add_speed),
                 label = "",
+                keep_menu = true,
                 action = start_speed_edit
             }
         end
@@ -4083,6 +4085,10 @@ local function menu_activate(index)
         open_menu(item.submenu, menu.anchor, {back = true, arg = item.arg, stack = stack, at = menu.at, row_y = row_y})
         return
     end
+    if item.keep_menu then
+        if item.action then item.action() end
+        return
+    end
     close_menu()
     if item.action then item.action() end
 end
@@ -4150,7 +4156,7 @@ end
 open_menu = function(kind, anchor_name, opts)
     opts = opts or {}
     -- the same button again closes its menu (and any submenu opened from it)
-    if menu and not opts.back and not opts.from_back
+    if menu and not opts.back and not opts.from_back and not opts.reload
         and (menu.kind == kind or (anchor_name and menu.anchor == anchor_name)) then
         close_menu()
         return
@@ -4544,8 +4550,11 @@ render_menu = function(master_ass, m)
         local meta_w = item.meta and estimate_text_width(item.meta, st.meta .. "{\\fs" .. MENU.meta_fs .. "}") or 0
         if item.meta then text(trail, cy, 6, st.meta, MENU.meta_fs, item.meta, edge) end
         local label_right = trail - (item.meta and meta_w + 14 or 0)
-        if item.label and item.label ~= "" then
+        if (item.label and item.label ~= "") or (menu.kind == "speed" and item.is_editing) then
             local label = (menu.kind == "speed") and item.label or fit_label(item, label_right - label_x, st.label .. "{\\fs" .. MENU.fs .. "}")
+            if menu.kind == "speed" and item.is_editing then
+                label = (speed_edit_state.text == "" and "_" or (speed_edit_state.text .. "|"))
+            end
             local clip = (menu.kind == "speed") and cut_tag or clip_rect(XC(label_x - 2), Y(ry), XC(label_right), Y(ry + row_h))
             local label_style = st.label
             if menu.kind == "speed" and item.active then
@@ -4897,7 +4906,7 @@ local function glass_window_controls()
         local max_w = math.max(0, (count > 0 and bx or (W - m)) - 12 - left_x)
         local raw_title = mp.get_property("media-title") or mp.get_property("title") or ""
         local text_w = math.min(max_w - 32, estimate_text_width(raw_title, osc_styles.glass_window_title))
-        if raw_title ~= "" and text_w > 20 then
+        if raw_title ~= "" and text_w > 0 and max_w > 40 then
             glass_panel("wc_title_panel", left_x, by, text_w + 32, box_h, r, "top")
             state.wt_rect = {x1 = left_x, y1 = by, x2 = left_x + text_w + 32, y2 = by + box_h, r = r}
             lo = add_layout("windowtitle")
@@ -5033,12 +5042,12 @@ layouts["default"] = function ()
 
     -- controls are 34 wide round targets; the outer ones sit concentric with the panel corners
     local btn = 34
-    local radius = math.max(8, user_opts.panel_radius)
+    local panel_h = 58
+    local radius = math.min(math.floor(panel_h / 2), math.max(8, user_opts.panel_radius))
     local inset = math.max(6, radius - btn / 2)
     local pad_x = math.max(18, inset + 8)
 
     -- Title is placed at the top bar (window_title_panel), bottom panel has seekbar on top and controls below
-    local panel_h = 58
     local py = H - margin - panel_h
     local x0, x1 = px + pad_x, px + panel_w - pad_x
     local inner_w = x1 - x0
@@ -6473,6 +6482,9 @@ local function osc_init()
         local raw = mp.get_property("media-title") or mp.get_property("title") or ""
         local t = make_escaped_title(raw)
         local style = state.glass_ui and osc_styles.glass_window_title or osc_styles.window_title
+        if state.glass_ui and state.windowtitle_max_w and estimate_text_width(t, style) > state.windowtitle_max_w then
+            return truncate_title(t, state.windowtitle_max_w, style)
+        end
         return user_opts.truncate_title and truncate_title(t, state.windowtitle_max_w, style) or t
     end
 
@@ -8034,6 +8046,24 @@ mp.register_script_message("danmaku_menu/toggle", function()
 end)
 mp.register_script_message("modernz/danmaku_menu/toggle", function()
     if state.menu and state.menu.kind == "danmaku" then close_menu() else open_menu("danmaku", "danmaku") end
+end)
+mp.register_script_message("modernz/speed_edit/start", function()
+    if not menu or menu.kind ~= "speed" then
+        open_menu("speed", "speed")
+    end
+    start_speed_edit()
+end)
+mp.register_script_message("modernz/speed_edit/type", function(str)
+    if speed_edit_state and speed_edit_state.active then
+        speed_edit_state.text = tostring(str)
+        request_tick()
+    end
+end)
+mp.register_script_message("modernz/speed_edit/commit", function()
+    commit_speed_edit()
+end)
+mp.register_script_message("modernz/speed_remove", function(val)
+    if remove_custom_speed then remove_custom_speed(tonumber(val)) end
 end)
 mp.register_script_message("osc-idlescreen", idlescreen_visibility)
 mp.register_script_message("thumbfast-info", function(json)

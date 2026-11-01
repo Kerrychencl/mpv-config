@@ -56,12 +56,13 @@
   [PASS] extract_bili_cid aborts immediately on live stream
 
 [TEST 11] Subtitle Margin Elevation Tuning
-  [PASS] sub-pos adjusted by moderate factor (margins.b * 0.6)
-  [PASS] sub-margin-y adjusted by moderate factor (margins.b * H * 0.55)
+  [PASS] sub-pos adjusted by moderate factor (margins.b * 0.38)
+  [PASS] sub-margin-y adjusted by moderate factor (margins.b * H * 0.38)
 
 [TEST 12] Speed Menu Inline Editing & Custom Speed Deletion
   [PASS] modernz.lua contains start_speed_edit and stop_speed_edit
   [PASS] modernz.lua contains remove_custom_speed
+  [PASS] modernz.lua preserves menu on edit and reload (keep_menu & opts.reload)
   [PASS] render_menu draws window_close on hovered custom speed
   [PASS] menu_event supports right-click or cross-click to remove custom speed
 
@@ -71,7 +72,7 @@
   [PASS] observe_cached watches media-title and title to request_init_resize
 
 ================================================================================
-  CODE LOGIC SUMMARY: Total 42 | Passed: 42 | Failed: 0
+  CODE LOGIC SUMMARY: Total 43 | Passed: 43 | Failed: 0
 ================================================================================
 
 [VISUAL TESTS] Performing In-Engine Visual Screenshots & GUI Execution
@@ -79,6 +80,8 @@
   [SAVED] prove-it/screenshots/01_osc_ui_layout.png
   [ACTION] Toggling ModernZ Speed Menu...
   [SAVED] prove-it/screenshots/02_speed_menu.png
+  [ACTION] Activating Inline Speed Edit (Typing 1.75)...
+  [SAVED] prove-it/screenshots/02_speed_editing.png (Live In-slot Edit)
   [ACTION] Opening Context Menu...
   [SAVED] prove-it/screenshots/03_context_menu.png
   [ACTION] Opening BTR Threadripper Advanced Menu...
