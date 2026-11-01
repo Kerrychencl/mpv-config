@@ -72,8 +72,10 @@ local function is_bili_live_stream()
     local combined = path .. " " .. stream_path
     if combined:find("live%.bilibili%.com")
         or combined:find("/live_")
-        or combined:find("/live%-bvc/")
+        or combined:find("/live%-bvc")
+        or combined:find("/live%-")
         or combined:find("/live/")
+        or combined:find("gotcha")
         or (combined:find("[?&]os=mcdn") and (combined:find("live") or combined:find("bvc"))) then
         return true
     end

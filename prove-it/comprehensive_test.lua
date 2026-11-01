@@ -352,11 +352,11 @@ do
         local content = modernz_file:read("*all")
         modernz_file:close()
 
-        assert_test("sub-pos adjusted by moderate factor (margins.b * 0.6)",
-            content:find("1 %- margins%.b %* 0%.6") ~= nil,
+        assert_test("sub-pos adjusted by moderate factor (margins.b * 0.38)",
+            content:find("margins%.b %* 0%.38") ~= nil,
             "sub-pos scaling factor missing")
-        assert_test("sub-margin-y adjusted by moderate factor (margins.b * H * 0.55)",
-            content:find("margins%.b %* H %* 0%.55") ~= nil,
+        assert_test("sub-margin-y adjusted by moderate factor (margins.b * H * 0.38)",
+            content:find("margins%.b %* H %* 0%.38") ~= nil,
             "sub-margin-y scaling factor missing")
     end
 end
@@ -378,6 +378,9 @@ do
         assert_test("modernz.lua contains remove_custom_speed",
             content:find("remove_custom_speed = function%(val%)") ~= nil,
             "missing remove_custom_speed function")
+        assert_test("modernz.lua preserves menu on edit and reload (keep_menu & opts.reload)",
+            content:find("item%.keep_menu") ~= nil and content:find("opts%.reload") ~= nil,
+            "missing keep_menu or opts.reload protection")
         assert_test("render_menu draws window_close on hovered custom speed",
             content:find("menu%.kind == \"speed\" and item%.is_custom and menu%.hover == i") ~= nil,
             "missing delete cross rendering in speed menu")
@@ -439,9 +442,28 @@ local function run_visual_steps()
         mp.add_timeout(0.5, function()
             mp.commandv("screenshot-to-file", utils.join_path(root_dir, "prove-it/screenshots/02_speed_menu.png"), "window")
             log("  [SAVED] prove-it/screenshots/02_speed_menu.png")
-            mp.commandv("script-message", "speed_menu/toggle") -- close it
-            step = 3
-            mp.add_timeout(0.3, run_visual_steps)
+            
+            -- Step 2.5: Test Inline Speed Edit & Live Cursor
+            log("  [ACTION] Activating Inline Speed Edit (Typing 1.75)...")
+            mp.commandv("script-message", "modernz/speed_edit/start")
+            mp.add_timeout(0.3, function()
+                mp.commandv("script-message", "modernz/speed_edit/type", "1.75")
+                mp.add_timeout(0.4, function()
+                    mp.commandv("screenshot-to-file", utils.join_path(root_dir, "prove-it/screenshots/02_speed_editing.png"), "window")
+                    log("  [SAVED] prove-it/screenshots/02_speed_editing.png (Live In-slot Edit)")
+                    mp.commandv("script-message", "modernz/speed_edit/commit")
+                    mp.add_timeout(0.4, function()
+                        -- clean up the added speed preset (1.75) using remove_custom_speed for test idempotency
+                        mp.commandv("script-message", "modernz/speed_remove", "1.75")
+                        mp.commandv("set", "speed", "1.0")
+                        mp.add_timeout(0.2, function()
+                            mp.commandv("script-message", "speed_menu/toggle") -- close it
+                            step = 3
+                            mp.add_timeout(0.3, run_visual_steps)
+                        end)
+                    end)
+                end)
+            end)
         end)
     elseif step == 3 then
         -- Step 3: Open Right-Click Context Menu
