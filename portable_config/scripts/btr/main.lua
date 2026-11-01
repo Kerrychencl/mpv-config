@@ -267,13 +267,11 @@ end
 local function is_bili_live_url(url)
     if not url or url == "" then return false end
     local lower = url:lower()
-    if lower:find("live%-bvc") or lower:find("gotcha") or lower:find("/live/") or lower:find("/live%-") or lower:find("live%.bilibili%.com") then
+    if lower:find("live%-bvc") or lower:find("gotcha") or lower:find("/live/") or lower:find("/live%-") or lower:find("/live_") or lower:find("live%.bilibili%.com") then
         return true
     end
-    if settings.live_acceleration and (lower:find("mcdn%.") or lower:find("[?&]os=mcdn")) then
-        if lower:find("/live") or lower:find("bvc") then
-            return true
-        end
+    if (lower:find("mcdn%.") or lower:find("[?&]os=mcdn")) and (lower:find("/live") or lower:find("live_") or lower:find("bvc")) then
+        return true
     end
     return false
 end
@@ -1348,10 +1346,10 @@ close_menu = function()
     osd:update()
 end
 
-local function open_menu()
+local function open_menu(initial_page)
     is_open = true
     hovered_btn = nil
-    runtime.page = "main" -- 每次開啟必定重置為主面板 (圖一)
+    runtime.page = initial_page or "main"
     prev_dragging = mp.get_property("window-dragging", "yes")
     pcall(function()
         mp.set_property("window-dragging", "no")
@@ -1391,5 +1389,9 @@ mp.register_script_message("toggle", toggle_menu)
 mp.register_script_message("btr-open-menu", open_menu)
 mp.register_script_message("btr-close-menu", close_menu)
 mp.register_script_message("btr-toggle-menu", toggle_menu)
+mp.register_script_message("btr-open-advanced", function()
+    runtime.page = "advanced"
+    if not is_open then open_menu("advanced") else render_menu() end
+end)
 
 mp.msg.info("[BTR] Bilibili 執行緒撕裂者模組已就緒 (快捷鍵: Alt+t)")
