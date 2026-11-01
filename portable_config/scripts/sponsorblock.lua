@@ -306,7 +306,9 @@ mp.observe_property("user-data/osc/panel_rect", "native", function()
 end)
 
 mp.register_script_message("sponsorblock-show-skip", function(name)
-    show_manual_skip({ name = (name and name ~= "") and name or "贊助商片段", start_time = 5, end_time = 25 })
+    local test_seg = { name = (name and name ~= "") and name or "贊助商片段", start_time = 0, end_time = 9999, skip = false, skipped = false }
+    current_segments = { test_seg }
+    show_manual_skip(test_seg)
 end)
 mp.register_script_message("sponsorblock-hide-skip", hide_manual_skip)
 
