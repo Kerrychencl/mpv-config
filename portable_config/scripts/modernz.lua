@@ -1033,7 +1033,7 @@ local function set_osc_styles()
         glass_chapter = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.muted_text_color) .. "&\\fs" .. user_opts.chapter_title_font_size .. "\\q2\\fn" .. ui_font.regular .. "}",
         glass_time = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.time_color) .. "&\\fs" .. user_opts.time_font_size .. "\\fn" .. ui_font.medium .. ui_font.medium_b .. "}",
         glass_text = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\fs" .. user_opts.speed_font_size .. "\\fn" .. ui_font.medium .. ui_font.medium_b .. "}",
-        glass_speed = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\fs15\\b1\\fnMicrosoft JhengHei}",
+        glass_speed = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\fs15\\fn" .. ui_font.medium .. ui_font.medium_b .. "}",
         glass_cache = "{\\bord0\\shad0\\1c&H" .. osc_color_convert(user_opts.cache_info_color) .. "&\\fs" .. user_opts.cache_info_font_size .. "\\fn" .. ui_font.regular .. "}",
         glass_window_control = "{\\1c&H" .. osc_color_convert(user_opts.window_controls_color) .. "&\\fs18}",
         glass_play = "{\\1c&H" .. osc_color_convert(user_opts.playpause_color) .. "&\\fs30}",
@@ -4433,7 +4433,11 @@ render_menu = function(master_ass, m)
         if item.label and item.label ~= "" then
             local label = (menu.kind == "speed") and item.label or fit_label(item, label_right - label_x, st.label .. "{\\fs" .. MENU.fs .. "}")
             local clip = (menu.kind == "speed") and cut_tag or clip_rect(XC(label_x - 2), Y(ry), XC(label_right), Y(ry + row_h))
-            text(label_x, cy, 4, st.label, MENU.fs, label, edge, clip)
+            local label_style = st.label
+            if menu.kind == "speed" and item.active then
+                label_style = string.format("{\\bord0\\shad0%s\\fn%s\\1c&H2880F7&}", ui_font.semibold_b, ui_font.semibold)
+            end
+            text(label_x, cy, 4, label_style, MENU.fs, label, edge, clip)
         end
     end
 
@@ -6621,11 +6625,7 @@ local function osc_init()
     --speed
     ne = new_element("speed", "button")
     ne.content = function()
-        if not state.speed or math.abs(state.speed - 1) < 0.001 then
-            return icons.speed
-        else
-            return speed_label(state.speed)
-        end
+        return speed_label(state.speed or 1)
     end
     ne.tooltipF = function()
         local cur = state.speed or 1
@@ -7526,6 +7526,14 @@ mp.register_event("start-file", function()
 end)
 mp.observe_property("user-data/danmaku/present", "bool", function()
     update_danmaku_state()
+end)
+mp.observe_property("user-data/danmaku-menu/open", "bool", function(_, is_open)
+    if is_open then
+        show_osc()
+        request_tick()
+    else
+        request_tick()
+    end
 end)
 
 mp.observe_property("secondary-sub-visibility", "bool", function(_, val)

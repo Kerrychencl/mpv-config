@@ -242,9 +242,9 @@ local function show_manual_skip(seg)
     sb_overlay.res_x = ww
     sb_overlay.res_y = wh
 
-    local btn_w = 320
+    local btn_w = math.min(320, ww - 24)
     local btn_h = 38
-    local btn_x = ww - btn_w - 24
+    local btn_x = math.max(12, ww - btn_w - 24)
 
     local btn_y = wh - btn_h - 24
     local osc_visible = mp.get_property_bool("user-data/osc/visible", false)
@@ -298,6 +298,17 @@ mp.observe_property("user-data/osc/visible", "bool", function(_, vis)
         show_manual_skip(manual_skip_active)
     end
 end)
+
+mp.observe_property("user-data/osc/panel_rect", "native", function()
+    if manual_skip_active then
+        show_manual_skip(manual_skip_active)
+    end
+end)
+
+mp.register_script_message("sponsorblock-show-skip", function(name)
+    show_manual_skip({ name = (name and name ~= "") and name or "贊助商片段", start_time = 5, end_time = 25 })
+end)
+mp.register_script_message("sponsorblock-hide-skip", hide_manual_skip)
 
 -- 自動跳過與手動跳過按鈕監聽器
 on_time_pos = function(name, pos)
