@@ -164,8 +164,13 @@ local spawn_waiting = false
 local spawn_working = false
 local script_written = false
 local pending_loadfile = nil
-local pending_seek_fast = nil
-local spawn_time = nil
+local overlay_shown = false
+local sprite_pack = nil
+local sprite_fetching = false
+local sprite_failed = false
+local sprite_seq = 0
+local cached_ytdl_stdout = nil
+local cached_ytdl_webpage_url = nil
 
 local dirty = false
 
@@ -173,7 +178,6 @@ local x, y
 local last_x, last_y
 
 local last_seek_time
-local last_sent_seek_time
 local thumb_timestamp
 
 local effective_w, effective_h = options.max_width, options.max_height
@@ -216,6 +220,498 @@ trap "kill 0" EXIT
 while [[ $# -ne 0 ]]; do case $1 in --mpv-ipc-fd=*) MPV_IPC_FD=${1/--mpv-ipc-fd=/} ;; esac; shift; done
 if echo "print-text thumbfast" >&"$MPV_IPC_FD"; then echo -n > "$MPV_IPC_PATH"; tail -f "$MPV_IPC_PATH" >&"$MPV_IPC_FD" & while read -r -u "$MPV_IPC_FD" 2>/dev/null; do :; done; fi
 ]=]
+
+local ONLINE_THUMB_PY = [===[
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+online_thumb_engine.py
+High-speed seekbar sprite-sheet thumbnail extractor for Bilibili (videoshot) & YouTube (storyboard).
+Downloads and pre-slices the entire video's preview thumbnails into a raw BGRA pack (.pack + .idx)
+so MPV seekbar scrubbing on Bilibili & YouTube has 0ms local-memory latency.
+"""
+
+import sys
+import os
+import re
+import json
+import math
+import subprocess
+import urllib.request
+import urllib.parse
+import http.cookiejar
+from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def build_opener(cookie_file=None, referer=None):
+    cj = http.cookiejar.MozillaCookieJar()
+    if cookie_file and os.path.isfile(cookie_file):
+        try:
+            cj.load(cookie_file, ignore_discard=True, ignore_expires=True)
+        except Exception:
+            pass
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    headers = [("User-Agent", USER_AGENT)]
+    if referer:
+        headers.append(("Referer", referer))
+    opener.addheaders = headers
+    return opener
+
+
+def fetch_bytes(opener, url, timeout=8):
+    if url.startswith("//"):
+        url = "https:" + url
+    req = urllib.request.Request(url)
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def fetch_json(opener, url, timeout=8):
+    raw = fetch_bytes(opener, url, timeout=timeout)
+    return json.loads(raw.decode("utf-8", errors="replace"))
+
+
+def load_cached_ytdl_json(ytdl_json_file):
+    if not ytdl_json_file or not os.path.isfile(ytdl_json_file):
+        return None
+    try:
+        with open(ytdl_json_file, "r", encoding="utf-8", errors="replace") as f:
+            data = json.load(f)
+        try:
+            os.remove(ytdl_json_file)
+        except Exception:
+            pass
+        return data
+    except Exception:
+        return None
+
+
+def image_cell_to_bgra(sheet_img, box, target_w, target_h):
+    cell = sheet_img.crop(box)
+    if cell.mode != "RGB":
+        cell = cell.convert("RGB")
+    cw, ch = cell.size
+    if cw <= 0 or ch <= 0:
+        return b"\x00" * (target_w * target_h * 4)
+
+    if (cw, ch) != (target_w, target_h):
+        scale = min(target_w / cw, target_h / ch)
+        nw = max(1, int(round(cw * scale)))
+        nh = max(1, int(round(ch * scale)))
+        resample = getattr(Image, "Resampling", Image).BILINEAR
+        resized = cell.resize((nw, nh), resample)
+        if (nw, nh) != (target_w, target_h):
+            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+            canvas.paste(resized, ((target_w - nw) // 2, (target_h - nh) // 2))
+            cell = canvas
+        else:
+            cell = resized
+
+    r, g, b = cell.split()
+    a = Image.new("L", (target_w, target_h), 255)
+    bgra = Image.merge("RGBA", (b, g, r, a))
+    return bgra.tobytes()
+
+
+def write_pack(out_prefix, times, frames):
+    if not times or not frames or len(times) != len(frames):
+        return False
+    tmp_pack = out_prefix + ".pack.tmp"
+    tmp_idx = out_prefix + ".idx.tmp"
+    final_pack = out_prefix + ".pack"
+    final_idx = out_prefix + ".idx"
+
+    with open(tmp_pack, "wb") as fp:
+        for fr in frames:
+            fp.write(fr)
+
+    with open(tmp_idx, "w", encoding="utf-8") as fi:
+        for t in times:
+            fi.write(f"{t:.3f}\n")
+
+    try:
+        if os.path.exists(final_pack):
+            os.remove(final_pack)
+        if os.path.exists(final_idx):
+            os.remove(final_idx)
+    except Exception:
+        pass
+
+    os.replace(tmp_pack, final_pack)
+    os.replace(tmp_idx, final_idx)
+    return True
+
+
+# ==============================================================================
+# 1. Bilibili Videoshot Extractor
+# ==============================================================================
+def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cached_info=None):
+    opener = build_opener(cookie_file, referer="https://www.bilibili.com/")
+
+    if cached_info and isinstance(cached_info, dict):
+        if cached_info.get("webpage_url") and "bilibili.com" in str(cached_info.get("webpage_url")):
+            url = str(cached_info["webpage_url"])
+
+    if "b23.tv/" in url:
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with opener.open(req, timeout=6) as resp:
+                url = resp.geturl()
+        except Exception:
+            pass
+
+    bvid_m = re.search(r"(BV[0-9A-Za-z]{10})", url)
+    aid_m = re.search(r"av(\d+)", url, re.I)
+    ep_m = re.search(r"ep(\d+)", url, re.I)
+    page_m = re.search(r"[?&]p=(\d+)", url)
+    page_num = int(page_m.group(1)) if page_m else 1
+
+    bvid = bvid_m.group(1) if bvid_m else None
+    aid = aid_m.group(1) if aid_m else None
+    cid = None
+
+    if cached_info and isinstance(cached_info, dict):
+        cid_cand = cached_info.get("cid")
+        if cid_cand:
+            cid = cid_cand
+        if not bvid:
+            id_str = str(cached_info.get("id") or "")
+            m_bv = re.match(r"^(BV[0-9A-Za-z]{10})", id_str)
+            if m_bv:
+                bvid = m_bv.group(1)
+
+    if not cid or (not bvid and not aid):
+        try:
+            if bvid or aid:
+                q = f"bvid={bvid}" if bvid else f"aid={aid}"
+                view_data = fetch_json(opener, f"https://api.bilibili.com/x/web-interface/view?{q}")
+                if view_data.get("code") == 0 and view_data.get("data"):
+                    vdata = view_data["data"]
+                    bvid = vdata.get("bvid") or bvid
+                    aid = vdata.get("aid") or aid
+                    cid = vdata.get("cid") or cid
+                    pages = vdata.get("pages") or []
+                    if page_num > 1 and page_num <= len(pages):
+                        cid = pages[page_num - 1].get("cid") or cid
+            elif ep_m:
+                ep_id = ep_m.group(1)
+                ep_data = fetch_json(opener, f"https://api.bilibili.com/pgc/view/web/season?ep_id={ep_id}")
+                if ep_data.get("code") == 0 and ep_data.get("result"):
+                    for ep in ep_data["result"].get("episodes", []):
+                        if str(ep.get("id")) == str(ep_id):
+                            bvid = ep.get("bvid")
+                            aid = ep.get("aid")
+                            cid = ep.get("cid")
+                            break
+        except Exception:
+            pass
+
+    params = ["index=1"]
+    if bvid:
+        params.append(f"bvid={bvid}")
+    if aid:
+        params.append(f"aid={aid}")
+    if cid:
+        params.append(f"cid={cid}")
+
+    if len(params) == 1:
+        return False
+
+    vs_url = "https://api.bilibili.com/x/player/videoshot?" + "&".join(params)
+    vs_json = fetch_json(opener, vs_url)
+    if vs_json.get("code") != 0 or not vs_json.get("data"):
+        return False
+
+    data = vs_json["data"]
+    img_urls = data.get("image") or []
+    indices = data.get("index") or []
+    if not img_urls:
+        return False
+
+    cols = int(data.get("img_x_len") or 10)
+    rows = int(data.get("img_y_len") or 10)
+    cell_w = int(data.get("img_x_size") or 160)
+    cell_h = int(data.get("img_y_size") or 90)
+    per_sheet = cols * rows
+
+    sheets = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(img_urls))) as ex:
+        futs = {ex.submit(fetch_bytes, opener, u, 8): idx for idx, u in enumerate(img_urls)}
+        for f in as_completed(futs):
+            s_idx = futs[f]
+            try:
+                raw_bytes = f.result()
+                sheets[s_idx] = Image.open(BytesIO(raw_bytes)).convert("RGB")
+            except Exception:
+                pass
+
+    if not sheets:
+        return False
+
+    total_possible = len(img_urls) * per_sheet
+    count = len(indices) if indices else total_possible
+    count = min(count, total_possible)
+
+    times = []
+    frames = []
+    for i in range(count):
+        s_idx = i // per_sheet
+        if s_idx not in sheets:
+            continue
+        sheet_img = sheets[s_idx]
+        in_sheet = i % per_sheet
+        r_idx = in_sheet // cols
+        c_idx = in_sheet % cols
+        x0 = c_idx * cell_w
+        y0 = r_idx * cell_h
+        if x0 + cell_w > sheet_img.width or y0 + cell_h > sheet_img.height:
+            continue
+        t_val = float(indices[i]) if i < len(indices) else float(i * 2)
+        bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+        times.append(t_val)
+        frames.append(bgra)
+
+    return write_pack(out_prefix, times, frames)
+
+
+# ==============================================================================
+# 2. YouTube Storyboard Extractor (MPV Cached JSON + Direct Spec + yt-dlp Fallback)
+# ==============================================================================
+def parse_ytdl_storyboard_info(info):
+    if not info or not isinstance(info, dict):
+        return None
+    formats = info.get("formats") or []
+    fmts = [
+        f for f in formats
+        if f.get("fragments") and (
+            (f.get("vcodec") == "none" and f.get("acodec") == "none" and f.get("columns") and f.get("rows"))
+            or str(f.get("format_id", "")).startswith("sb")
+            or f.get("format_note") == "storyboard"
+        )
+    ]
+    if not fmts:
+        return None
+    fmts.sort(key=lambda f: (int(f.get("width") or 0) * int(f.get("height") or 0), len(f.get("fragments") or [])))
+    best_sb = fmts[-1]
+    cols = int(best_sb.get("columns") or 5)
+    rows = int(best_sb.get("rows") or 5)
+    frags = best_sb.get("fragments") or []
+    urls = [fr["url"] for fr in frags if fr.get("url")]
+    if not urls:
+        return None
+    dur = float(info.get("duration") or 0)
+    total_count = len(urls) * cols * rows
+    interval_sec = (dur / float(total_count)) if (dur > 0 and total_count > 0) else 2.0
+    return {
+        "cell_w": int(best_sb.get("width") or 0),
+        "cell_h": int(best_sb.get("height") or 0),
+        "total_count": total_count,
+        "cols": cols,
+        "rows": rows,
+        "interval_sec": interval_sec,
+        "urls": urls,
+        "fragments": frags,
+    }
+
+
+def parse_youtube_storyboard_spec(spec_str, duration=0):
+    if not spec_str or "|" not in spec_str:
+        return None
+    parts = spec_str.split("|")
+    base_url = parts[0]
+    levels = parts[1:]
+    if not levels:
+        return None
+
+    level_idx = len(levels) - 1
+    l_parts = levels[level_idx].split("#")
+    if len(l_parts) < 8:
+        return None
+
+    cell_w = int(l_parts[0])
+    cell_h = int(l_parts[1])
+    total_count = int(l_parts[2])
+    cols = int(l_parts[3])
+    rows = int(l_parts[4])
+    interval_ms = int(l_parts[5])
+    name_pat = l_parts[6]
+    sigh = l_parts[7]
+
+    per_sheet = cols * rows
+    if per_sheet <= 0 or total_count <= 0:
+        return None
+
+    num_sheets = int(math.ceil(total_count / float(per_sheet)))
+    interval_sec = (interval_ms / 1000.0) if interval_ms > 0 else (
+        (duration / float(total_count)) if duration > 0 else 2.0
+    )
+
+    urls = []
+    for m in range(num_sheets):
+        u = base_url.replace("$L", str(level_idx))
+        n_str = name_pat.replace("$M", str(m))
+        u = u.replace("$N", n_str)
+        sep = "&" if "?" in u else "?"
+        u = f"{u}{sep}sigh={urllib.parse.quote(sigh)}"
+        urls.append(u)
+
+    return {
+        "cell_w": cell_w,
+        "cell_h": cell_h,
+        "total_count": total_count,
+        "cols": cols,
+        "rows": rows,
+        "interval_sec": interval_sec,
+        "urls": urls,
+    }
+
+
+def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_bin="yt-dlp", cached_info=None):
+    opener = build_opener(cookie_file, referer="https://www.youtube.com/")
+    sb_info = None
+
+    # Fast Path 0: Use MPV's already-fetched ytdl_hook JSON (0ms overhead!)
+    if cached_info:
+        sb_info = parse_ytdl_storyboard_info(cached_info)
+
+    # Fast Path 1: Fetch watch page directly and extract playerStoryboardSpecRenderer (~0.25s)
+    if not sb_info:
+        try:
+            html = fetch_bytes(opener, url, timeout=6).decode("utf-8", errors="replace")
+            m_spec = re.search(r'"playerStoryboardSpecRenderer"\s*:\s*\{\s*"spec"\s*:\s*"([^"]+)"', html)
+            m_dur = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', html)
+            dur = float(m_dur.group(1)) if m_dur else 0.0
+            if m_spec:
+                raw_spec = m_spec.group(1).encode("utf-8").decode("unicode_escape")
+                sb_info = parse_youtube_storyboard_spec(raw_spec, dur)
+        except Exception:
+            pass
+
+    # Fast Path 2: Fallback to yt-dlp JSON storyboard formats if needed
+    if not sb_info:
+        try:
+            cmd = [ytdl_bin, "--dump-single-json", "--no-warnings", "--no-playlist", "--skip-download"]
+            if cookie_file and os.path.isfile(cookie_file):
+                cmd.extend(["--cookies", cookie_file])
+            cmd.append(url)
+            creationflags = 0x08000000 if sys.platform.startswith("win") else 0
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, creationflags=creationflags)
+            if proc.returncode == 0 and proc.stdout:
+                info = json.loads(proc.stdout.decode("utf-8", errors="replace"))
+                sb_info = parse_ytdl_storyboard_info(info)
+        except Exception:
+            pass
+
+    if not sb_info or not sb_info.get("urls"):
+        return False
+
+    urls = sb_info["urls"]
+    cols = sb_info["cols"]
+    rows = sb_info["rows"]
+    per_sheet = cols * rows
+    total_count = sb_info["total_count"]
+    interval_sec = sb_info["interval_sec"]
+    frags = sb_info.get("fragments")
+
+    sheets = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(urls))) as ex:
+        futs = {ex.submit(fetch_bytes, opener, u, 8): idx for idx, u in enumerate(urls)}
+        for f in as_completed(futs):
+            s_idx = futs[f]
+            try:
+                raw_bytes = f.result()
+                sheets[s_idx] = Image.open(BytesIO(raw_bytes)).convert("RGB")
+            except Exception:
+                pass
+
+    if not sheets:
+        return False
+
+    first_sheet = sheets.get(0) or next(iter(sheets.values()))
+    base_cell_w = first_sheet.width // cols if cols > 0 else 0
+    base_cell_h = first_sheet.height // rows if rows > 0 else 0
+    if base_cell_w <= 0 or base_cell_h <= 0:
+        base_cell_w = sb_info.get("cell_w") or 160
+        base_cell_h = sb_info.get("cell_h") or 90
+
+    times = []
+    frames = []
+    cur_time = 0.0
+    frame_idx = 0
+
+    for s_idx in range(len(urls)):
+        if s_idx not in sheets:
+            if frags and s_idx < len(frags) and frags[s_idx].get("duration"):
+                cur_time += float(frags[s_idx]["duration"])
+            else:
+                cur_time += per_sheet * interval_sec
+            frame_idx += per_sheet
+            continue
+
+        sheet_img = sheets[s_idx]
+        cell_w = base_cell_w
+        cell_h = base_cell_h
+        if cell_w <= 0 or cell_h <= 0:
+            continue
+
+        frag_dur = float(frags[s_idx]["duration"]) if (frags and s_idx < len(frags) and frags[s_idx].get("duration")) else None
+        cell_dt = (frag_dur / float(per_sheet)) if frag_dur else interval_sec
+
+        for r_idx in range(rows):
+            for c_idx in range(cols):
+                if frame_idx >= total_count:
+                    break
+                x0 = c_idx * cell_w
+                y0 = r_idx * cell_h
+                if x0 + cell_w <= sheet_img.width and y0 + cell_h <= sheet_img.height:
+                    bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+                    times.append(cur_time)
+                    frames.append(bgra)
+                cur_time += cell_dt
+                frame_idx += 1
+
+    return write_pack(out_prefix, times, frames)
+
+
+def main():
+    if Image is None or len(sys.argv) < 5:
+        sys.exit(1)
+
+    url = sys.argv[1]
+    target_w = int(sys.argv[2])
+    target_h = int(sys.argv[3])
+    out_prefix = sys.argv[4]
+    cookie_file = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+    ytdl_bin = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else "yt-dlp"
+    ytdl_json_file = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None
+
+    cached_info = load_cached_ytdl_json(ytdl_json_file)
+
+    lower_url = url.lower()
+    ok = False
+    if "bilibili.com" in lower_url or "b23.tv" in lower_url:
+        ok = extract_bilibili(url, target_w, target_h, out_prefix, cookie_file, cached_info)
+    elif "youtube.com" in lower_url or "youtu.be" in lower_url:
+        ok = extract_youtube(url, target_w, target_h, out_prefix, cookie_file, ytdl_bin, cached_info)
+
+    sys.exit(0 if ok else 2)
+
+
+if __name__ == "__main__":
+    main()
+]===]
+
 
 local function get_os()
     local raw_os_name = ""
@@ -452,24 +948,20 @@ local function info(w, h)
     end
 end
 
-local function close_pipe()
-    if options.direct_io and winapi and winapi.hPipe and winapi.hPipe ~= winapi.INVALID_HANDLE_VALUE then
-        pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
-        winapi.hPipe = nil
-    end
+local function remove_thumbnail_files()
     if file then
         pcall(function() file:close() end)
         file = nil
         file_bytes = 0
     end
-end
-
-local function remove_thumbnail_files()
-    close_pipe()
     pcall(function()
         os.remove(options.thumbnail)
         os.remove(options.thumbnail..".bgra")
         os.remove(options.thumbnail..".tmp")
+        os.remove(options.thumbnail..".pack")
+        os.remove(options.thumbnail..".idx")
+        os.remove(options.thumbnail..".pack.tmp")
+        os.remove(options.thumbnail..".idx.tmp")
     end)
 end
 
@@ -500,12 +992,9 @@ local function extract_direct_url(fn)
         return optimize_btr_url(fn)
     end
     if fn:match("^edl://") then
-        -- If fragmented MP4 DASH is used inside EDL, preserve full EDL
         if fn:find("!mp4_dash", 1, true) then
             return fn
         end
-        -- Parse EDL stream segments using exact %<len>% byte lengths so URLs containing commas
-        -- (e.g. Bilibili &sigparams=cdn,expires,len... or YouTube params) are never truncated
         local fallback_url = nil
         local pos = 1
         while pos <= #fn do
@@ -515,7 +1004,6 @@ local function extract_direct_url(fn)
             local url_start = s + #len_str + 2
             if len and len > 0 and (url_start + len - 1) <= #fn then
                 local candidate = fn:sub(url_start, url_start + len - 1)
-                -- Check the header immediately preceding this URL in the same !new_stream segment
                 local seg_start = fn:sub(1, s - 1):match(".*!new_stream()") or 1
                 local seg_header = fn:sub(seg_start, s - 1)
                 local is_audio_only = seg_header:find("media_type=audio", 1, true) and not seg_header:find("media_type=video", 1, true)
@@ -544,10 +1032,254 @@ local function extract_direct_url(fn)
     return fn
 end
 
-local activity_timer
+-- ==============================================================================
+-- Online Sprite-Sheet / Storyboard RAM Pack Engine (Bilibili & YouTube)
+-- ==============================================================================
+local function get_online_page_url()
+    local candidates = {
+        mp.get_property("path"),
+        properties["path"],
+        cached_ytdl_webpage_url,
+        mp.get_property("metadata/by-key/webpage_url"),
+        mp.get_property("filtered-metadata/by-key/webpage_url"),
+    }
+    for _, raw in ipairs(candidates) do
+        if raw and raw ~= "" then
+            local u = raw:gsub("^ytdl://https?://", "https://"):gsub("^ytdl://", "https://")
+            local lower = u:lower()
+            if lower:find("^https?://") and (
+                lower:find("bilibili%.com/video/") or
+                lower:find("bilibili%.com/bangumi/play/") or
+                lower:find("b23%.tv/") or
+                lower:find("youtube%.com/watch") or
+                lower:find("youtube%.com/shorts/") or
+                lower:find("youtu%.be/")
+            ) then
+                return u
+            end
+        end
+    end
+    return nil
+end
 
-local function spawn(time)
-    if disabled then return end
+local function find_sprite_index(times, target)
+    local n = #times
+    if n == 0 then return nil end
+    if target <= times[1] then return 1 end
+    if target >= times[n] then return n end
+    local lo, hi = 1, n
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        if times[mid] == target then
+            return mid
+        elseif times[mid] < target then
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    local idx = math.max(1, hi)
+    if idx < n and math.abs(times[idx + 1] - target) < math.abs(times[idx] - target) then
+        return idx + 1
+    end
+    return idx
+end
+
+local function write_sprite_frame_to_bgra(time)
+    if not sprite_pack or not sprite_pack.frames or #sprite_pack.frames == 0 then
+        return false
+    end
+    local idx = find_sprite_index(sprite_pack.times, time or 0)
+    if not idx or not sprite_pack.frames[idx] then
+        return false
+    end
+    if sprite_pack.last_idx ~= idx or not sprite_pack.bgra_written then
+        local tmp_bgra = options.thumbnail .. ".sp.tmp"
+        local dst_bgra = options.thumbnail .. ".bgra"
+        local wrote = false
+        local f = io.open(tmp_bgra, "wb")
+        if f then
+            f:write(sprite_pack.frames[idx])
+            f:close()
+            pcall(function() os.remove(dst_bgra) end)
+            local ok, ren = pcall(function() return os.rename(tmp_bgra, dst_bgra) end)
+            if ok and ren then
+                wrote = true
+            else
+                pcall(function() os.remove(tmp_bgra) end)
+            end
+        end
+        if not wrote then
+            local f2 = io.open(dst_bgra, "wb")
+            if not f2 then return false end
+            f2:write(sprite_pack.frames[idx])
+            f2:close()
+        end
+        sprite_pack.last_idx = idx
+        sprite_pack.bgra_written = true
+    end
+    real_w, real_h = sprite_pack.w, sprite_pack.h
+    return true
+end
+
+local function load_sprite_pack(prefix, w, h)
+    local idx_path = prefix .. ".idx"
+    local pack_path = prefix .. ".pack"
+    local fi = io.open(idx_path, "r")
+    local fp = io.open(pack_path, "rb")
+    if not fi or not fp then
+        if fi then fi:close() end
+        if fp then fp:close() end
+        return false
+    end
+    local times = {}
+    for line in fi:lines() do
+        local t = tonumber(line)
+        if t then times[#times + 1] = t end
+    end
+    fi:close()
+
+    local frame_bytes = w * h * 4
+    local frames = {}
+    if frame_bytes > 0 then
+        for i = 1, #times do
+            local data = fp:read(frame_bytes)
+            if not data or #data < frame_bytes then break end
+            frames[i] = data
+        end
+    end
+    fp:close()
+    pcall(function()
+        os.remove(idx_path)
+        os.remove(pack_path)
+    end)
+
+    if #frames == 0 then return false end
+    sprite_pack = {
+        w = w,
+        h = h,
+        times = times,
+        frames = frames,
+        last_idx = nil,
+        bgra_written = false,
+    }
+    real_w, real_h = w, h
+    if real_w ~= last_real_w or real_h ~= last_real_h then
+        last_real_w, last_real_h = real_w, real_h
+        info(real_w, real_h)
+    end
+    return true
+end
+
+local activity_timer
+local draw
+local run
+
+local spawn
+local request_seek
+
+local function start_online_sprite_fetch()
+    if disabled or sprite_fetching or sprite_pack or sprite_failed then return end
+    local page_url = get_online_page_url()
+    if not page_url then return end
+    if not effective_w or not effective_h or effective_w <= 0 or effective_h <= 0 then return end
+
+    -- For YouTube, wait briefly if ytdl_hook hasn't populated cached_ytdl_stdout yet, unless already loaded
+    local temp_dir = os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
+    local sep = os_name == "windows" and "\\" or "/"
+    local py_script = temp_dir .. sep .. "thumbfast_online_engine.py"
+    local pf = io.open(py_script, "wb")
+    if not pf then return end
+    pf:write(ONLINE_THUMB_PY)
+    pf:close()
+
+    local cookie_file = properties["cookies-file"] or mp.get_property("cookies-file") or ""
+    if cookie_file == "" then
+        local active_cookies = temp_dir .. sep .. "mpv_active_cookies.txt"
+        local cf = io.open(active_cookies, "r")
+        if cf then
+            cf:close()
+            cookie_file = active_cookies
+        end
+    end
+
+    local ytdl_bin = "yt-dlp"
+    if os_name == "windows" then
+        local ok_p, cand = pcall(function() return mp.command_native({"expand-path", "~~/../yt-dlp.exe"}) end)
+        if ok_p and cand and mp.utils.file_info(cand) then
+            ytdl_bin = cand
+        end
+    end
+
+    sprite_seq = sprite_seq + 1
+    local cur_sprite_seq = sprite_seq
+    local req_w, req_h = effective_w, effective_h
+    local prefix = base_thumbnail .. "_sp_" .. cur_sprite_seq
+
+    local ytdl_json_path = ""
+    local ytdl_stdout = cached_ytdl_stdout
+    if not ytdl_stdout then
+        local ytdl_res = mp.get_property_native("user-data/mpv/ytdl/json-subprocess-result")
+        if ytdl_res and type(ytdl_res) == "table" and ytdl_res.status == 0 and ytdl_res.stdout and ytdl_res.stdout ~= "" then
+            ytdl_stdout = ytdl_res.stdout
+        end
+    end
+    if ytdl_stdout and ytdl_stdout ~= "" then
+        local jf_path = prefix .. ".ytdl.json"
+        local jf = io.open(jf_path, "wb")
+        if jf then
+            jf:write(ytdl_stdout)
+            jf:close()
+            ytdl_json_path = jf_path
+        end
+    end
+
+    sprite_fetching = true
+
+    local py_bin = os_name == "windows" and "python" or "python3"
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = true,
+        capture_stderr = true,
+        args = {py_bin, py_script, page_url, tostring(req_w), tostring(req_h), prefix, cookie_file, ytdl_bin, ytdl_json_path}
+    }, function(success, result)
+        if ytdl_json_path ~= "" then
+            pcall(function() os.remove(ytdl_json_path) end)
+        end
+        if cur_sprite_seq ~= sprite_seq then return end
+        sprite_fetching = false
+        local loaded = false
+        if success and result and result.status == 0 then
+            loaded = load_sprite_pack(prefix, req_w, req_h)
+        end
+        if loaded then
+            mp.msg.info("thumbfast: loaded online sprite pack (" .. tostring(#sprite_pack.frames) .. " frames)")
+            if spawned then
+                run("quit")
+                spawned = false
+            end
+            if show_thumbnail and last_seek_time then
+                if write_sprite_frame_to_bgra(last_seek_time) then
+                    draw(real_w, real_h, script_name)
+                end
+            end
+        else
+            sprite_failed = true
+            mp.msg.verbose("thumbfast: online sprite pack unavailable, falling back to mpv subprocess")
+            if not spawned and not disabled and (show_thumbnail or options.spawn_first or last_seek_time) then
+                spawn(last_seek_time or mp.get_property_number("time-pos", 0))
+                if show_thumbnail and last_seek_time then
+                    request_seek()
+                end
+                if not file_timer:is_enabled() then file_timer:resume() end
+            end
+        end
+    end)
+end
+
+spawn = function(time)
+    if disabled or sprite_pack then return end
 
     local path = properties["path"]
     if path == nil then return end
@@ -564,47 +1296,39 @@ local function spawn(time)
         activity_timer:resume()
     end
 
+    remove_thumbnail_files()
+
     spawn_seq = spawn_seq + 1
     options.socket = base_socket .. "_" .. spawn_seq
     options.thumbnail = base_thumbnail .. "_" .. spawn_seq
 
-    close_pipe()
     if options.direct_io and os_name == "windows" then
         winapi.socket_wc = winapi.MultiByteToWideChar("\\\\.\\pipe\\" .. options.socket)
     end
 
     local open_filename = properties["stream-open-filename"] or mp.get_property("stream-open-filename")
-    local is_network = properties["demuxer-via-network"] or (path and path:find("^https?://") ~= nil) or (open_filename and open_filename:find("^edl://") ~= nil)
-    local ytdl = open_filename and is_network and path ~= open_filename
+    local ytdl = open_filename and properties["demuxer-via-network"] and path ~= open_filename
     if ytdl then
         path = extract_direct_url(open_filename)
     elseif path and (path:match("^edl://") or path:match("^https?://127%.0%.0%.1:%d+/stream")) then
         path = extract_direct_url(path)
     end
 
-    remove_thumbnail_files()
-
     local vid = properties["vid"]
     has_vid = vid or 0
-
-    local hwdec_opt = "no"
-    if options.hwdec then
-        hwdec_opt = os_name == "windows" and "d3d11va-copy,nvdec-copy,auto-copy" or "auto-copy"
-    end
 
     local args = {
         mpv_path, "--no-config", "--msg-level=all=no", "--idle", "--pause", "--keep-open=always", "--really-quiet", "--no-terminal",
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--load-stats-overlay=no", "--load-osd-console=no", "--load-auto-profiles=no",
         "--edition="..(properties["edition"] or "auto"), "--vid="..(vid or "auto"), "--no-sub", "--no-audio",
         "--start="..time, allow_fast_seek and "--hr-seek=no" or "--hr-seek=yes",
-        "--force-seekable=yes", "--cache=no",
+        "--force-seekable=yes",
         "--ytdl-format=worst", "--demuxer-readahead-secs=0",
-        is_network and "--demuxer-max-bytes=1MiB" or "--demuxer-max-bytes=128KiB",
-        is_network and "--demuxer-max-back-bytes=256KiB" or "--demuxer-max-back-bytes=64KiB",
-        "--stream-buffer-size=128KiB",
+        properties["demuxer-via-network"] and "--demuxer-max-bytes=4MiB" or "--demuxer-max-bytes=128KiB",
+        properties["demuxer-via-network"] and "--stream-buffer-size=128KiB" or "--stream-buffer-size=128KiB",
         "--network-timeout=10",
         "--demuxer-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5",
-        "--vd-lavc-skiploopfilter=all", "--vd-lavc-software-fallback=1", "--vd-lavc-fast", "--vd-lavc-threads=4", "--hwdec="..hwdec_opt,
+        "--vd-lavc-skiploopfilter=all", "--vd-lavc-software-fallback=1", "--vd-lavc-fast", "--vd-lavc-threads=2", "--hwdec="..(options.hwdec and "auto" or "no"),
         "--vf="..vf_string(filters_all, true),
         "--sws-scaler=fast-bilinear",
         "--video-rotate="..last_rotate,
@@ -643,25 +1367,24 @@ local function spawn(time)
         table.insert(args, "--scripts="..client_script_path)
     end
 
-    local ua = properties["user-agent"] or mp.get_property("user-agent")
+    local ua = properties["user-agent"]
     if ua and ua ~= "" then
         table.insert(args, "--user-agent=" .. ua)
     end
-    local ref = properties["referrer"] or mp.get_property("referrer")
+    local ref = properties["referrer"]
     if ref and ref ~= "" then
         table.insert(args, "--referrer=" .. ref)
     end
 
-    local http_headers = properties["http-header-fields"] or mp.get_property_native("http-header-fields")
+    local http_headers = properties["http-header-fields"]
     if http_headers and type(http_headers) == "table" then
         for _, h in ipairs(http_headers) do
             table.insert(args, "--http-header-fields-append=" .. h)
         end
     end
 
-    local cookies_file = properties["cookies-file"] or mp.get_property("cookies-file")
-    if cookies_file and cookies_file ~= "" then
-        table.insert(args, "--cookies-file=" .. cookies_file)
+    if properties["cookies-file"] and properties["cookies-file"] ~= "" then
+        table.insert(args, "--cookies-file=" .. properties["cookies-file"])
     else
         local temp_dir = os.getenv("TEMP") or "C:\\Users\\Administrator\\AppData\\Local\\Temp"
         local active_cookies = temp_dir .. "\\mpv_active_cookies.txt"
@@ -688,7 +1411,7 @@ local function spawn(time)
         end
         if not has_bili_ref then
             table.insert(args, "--referrer=https://www.bilibili.com")
-            table.insert(args, "--http-header-fields-append=Referer: https://www.bilibili.com")
+            table.insert(args, "--http-header-fields-append=referer: https://www.bilibili.com")
         end
     end
 
@@ -703,9 +1426,6 @@ local function spawn(time)
 
     spawned = true
     spawn_waiting = true
-    spawn_time = time
-    last_sent_seek_time = time
-    pending_seek_fast = nil
 
     local current_seq = spawn_seq
     subprocess(args, true,
@@ -716,7 +1436,6 @@ local function spawn(time)
             if spawn_waiting and (success == false or (result.status ~= 0 and result.status ~= -2)) then
                 spawned = false
                 spawn_waiting = false
-                close_pipe()
                 options.tone_mapping = "no"
                 mp.msg.error("mpv subprocess create failed")
                 if not spawn_working then -- notify users of required configuration
@@ -757,52 +1476,25 @@ local function spawn(time)
     )
 end
 
-local function write_pipe_direct(buf)
-    if not winapi.hPipe or winapi.hPipe == winapi.INVALID_HANDLE_VALUE then
-        local h = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
-        if h == winapi.INVALID_HANDLE_VALUE then
-            return false
-        end
-        winapi.C.SetNamedPipeHandleState(h, winapi.PIPE_NOWAIT, nil, nil)
-        winapi.hPipe = h
-    end
-
-    local written = winapi.ffi.new("unsigned long[1]")
-    local ok = winapi.C.WriteFile(winapi.hPipe, buf, #buf, written, nil)
-    if not ok or written[0] == 0 then
-        pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
-        winapi.hPipe = nil
-        -- Retry once immediately in case previous handle was closed by server
-        local h = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
-        if h == winapi.INVALID_HANDLE_VALUE then
-            return false
-        end
-        winapi.C.SetNamedPipeHandleState(h, winapi.PIPE_NOWAIT, nil, nil)
-        winapi.hPipe = h
-        ok = winapi.C.WriteFile(winapi.hPipe, buf, #buf, written, nil)
-        if not ok or written[0] == 0 then
-            pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
-            winapi.hPipe = nil
-            return false
-        end
-    end
-    return true
-end
-
 local function check_pending_loadfile()
     if not pending_loadfile then return end
 
-    local p = pending_loadfile
-    local target_time = last_seek_time or p.time or 0
-    local load_cmd = {
-        command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
-    }
-    local buf = mp.utils.format_json(load_cmd) .. "\n"
-
     if options.direct_io then
-        if write_pipe_direct(buf) then
-            pending_loadfile = nil
-            spawn_time = target_time
+        local hPipe = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
+        if hPipe ~= winapi.INVALID_HANDLE_VALUE then
+            local p = pending_loadfile
+            local target_time = last_seek_time or p.time or 0
+            local load_cmd = {
+                command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
+            }
+            local buf = mp.utils.format_json(load_cmd) .. "\n"
+            winapi.C.SetNamedPipeHandleState(hPipe, winapi.PIPE_NOWAIT, nil, nil)
+            local written = winapi.ffi.new("unsigned long[1]")
+            local ok = winapi.C.WriteFile(hPipe, buf, #buf, written, nil)
+            winapi.C.CloseHandle(hPipe)
+            if ok and written[0] > 0 then
+                pending_loadfile = nil
+            end
         end
         return
     end
@@ -816,31 +1508,40 @@ local function check_pending_loadfile()
     end
 
     if file then
+        local p = pending_loadfile
         pending_loadfile = nil
-        spawn_time = target_time
-        file:write(buf)
+        local target_time = last_seek_time or p.time or 0
+        local load_cmd = {
+            command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
+        }
+        local json_str = mp.utils.format_json(load_cmd) .. "\n"
+        file:write(json_str)
         file:flush()
         file_bytes = 0
     end
 end
 
-local function run(command)
-    if not spawned then return false end
+run = function(command)
+    if not spawned then return end
 
     if pending_loadfile then
         check_pending_loadfile()
-        if pending_loadfile then return false end
+        if pending_loadfile then return end
+    end
+
+    if options.direct_io then
+        local hPipe = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
+        if hPipe ~= winapi.INVALID_HANDLE_VALUE then
+            local buf = command .. "\n"
+            winapi.C.SetNamedPipeHandleState(hPipe, winapi.PIPE_NOWAIT, nil, nil)
+            winapi.C.WriteFile(hPipe, buf, #buf, winapi._lpNumberOfBytesWritten, nil)
+            winapi.C.CloseHandle(hPipe)
+        end
+
+        return
     end
 
     local command_n = command.."\n"
-
-    if options.direct_io then
-        local ok = write_pipe_direct(command_n)
-        if command == "quit" then
-            close_pipe()
-        end
-        return ok
-    end
 
     if os_name == "windows" then
         if file and file_bytes + #command_n >= 4096 then
@@ -853,37 +1554,29 @@ local function run(command)
         end
     elseif pre_0_33_0 then
         subprocess({"/usr/bin/env", "sh", "-c", "echo '" .. command .. "' | socat - " .. options.socket})
-        return true
+        return
     elseif not file then
         file = io.open(options.socket, "r+")
     end
     if file then
-        file_bytes = file:seek("end") or 0
-        local ok = file:write(command_n) and file:flush()
-        if not ok then
-            pcall(function() file:close() end)
-            file = nil
-            file_bytes = 0
-            return false
-        end
-        return true
+        file_bytes = file:seek("end")
+        file:write(command_n)
+        file:flush()
     end
-    return false
 end
 
-local function draw(w, h, script)
+draw = function(w, h, script)
     if not w or not show_thumbnail then return end
     if x ~= nil then
         local scale_w, scale_h = options.scale_factor ~= 1 and (w * options.scale_factor) or nil, options.scale_factor ~= 1 and (h * options.scale_factor) or nil
+        if not overlay_shown then
+            overlay_shown = true
+            mp.commandv("script-message", "thumbfast-rendered", options.thumbnail..".bgra", tostring(w), tostring(h), tostring(x), tostring(y))
+        end
         if pre_0_30_0 then
             mp.command_native({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h})
-            mp.commandv("script-message", "thumbfast-rendered", "1")
         else
-            mp.command_native_async({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h}, function()
-                if show_thumbnail then
-                    mp.commandv("script-message", "thumbfast-rendered", "1")
-                end
-            end)
+            mp.command_native_async({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h}, function() end)
         end
     elseif script then
         local json, err = mp.utils.format_json({width=w, height=h, scale_factor=options.scale_factor, x=x, y=y, socket=options.socket, thumbnail=options.thumbnail, overlay_id=options.overlay_id})
@@ -930,13 +1623,8 @@ end
 
 local function seek(fast)
     if last_seek_time then
-        local cmd = "async seek " .. last_seek_time .. (fast and " absolute+keyframes" or " absolute+exact")
-        if run(cmd) then
-            pending_seek_fast = nil
-            last_sent_seek_time = last_seek_time
-        else
-            pending_seek_fast = (fast == true)
-        end
+        mp.msg.verbose("thumbfast seek: " .. (fast and "keyframes" or "exact") .. " to " .. tostring(last_seek_time))
+        run("async seek " .. last_seek_time .. (fast and " absolute+keyframes" or " absolute+exact"))
     end
 end
 
@@ -954,7 +1642,6 @@ seek_timer = mp.add_periodic_timer(seek_period, function()
             if allow_fast_seek and get_exact_seek_mode() ~= "no" then
                 seek(false)
             elseif last_seek_time then
-                -- Guarantee a final keyframe seek to the resting cursor position after scrubbing stops
                 seek(allow_fast_seek)
             end
         else
@@ -964,7 +1651,7 @@ seek_timer = mp.add_periodic_timer(seek_period, function()
 end)
 seek_timer:kill()
 
-local function request_seek()
+request_seek = function()
     if seek_timer:is_enabled() then
         seek_period_counter = 0
     else
@@ -984,32 +1671,17 @@ local function check_new_thumb()
     if not moved then return false end
     local finfo = mp.utils.file_info(tmp)
     if not finfo then return false end
-    local was_waiting = spawn_waiting
     spawn_waiting = false
     local w, h = real_res(effective_w, effective_h, finfo.size)
     if w then -- only accept valid thumbnails
         move_file(tmp, options.thumbnail..".bgra")
 
+        thumb_timestamp = last_seek_time
         real_w, real_h = w, h
         if real_w and (real_w ~= last_real_w or real_h ~= last_real_h) then
             last_real_w, last_real_h = real_w, real_h
             info(real_w, real_h)
         end
-
-        -- When the slave mpv just finished opening the network stream, the first decoded frame
-        -- is from --start=<spawn_time>. Any IPC seek sent while the demuxer was still opening
-        -- was ignored by mpv, so if the user moved the cursor (or if pre-spawned at t=0),
-        -- immediately issue a seek to last_seek_time now that the slave demuxer is ready!
-        if was_waiting and last_seek_time and spawn_time and math.abs(last_seek_time - spawn_time) > 0.5 then
-            thumb_timestamp = spawn_time
-            seek(allow_fast_seek)
-            if math.abs(last_seek_time - spawn_time) >= 3 then
-                return false
-            end
-        else
-            thumb_timestamp = last_seek_time or spawn_time
-        end
-
         if not show_thumbnail then
             file_timer:kill()
         end
@@ -1023,9 +1695,6 @@ file_timer = mp.add_periodic_timer(file_check_period, function()
     if pending_loadfile then
         check_pending_loadfile()
     end
-    if pending_seek_fast ~= nil and last_seek_time then
-        seek(pending_seek_fast)
-    end
     if check_new_thumb() then
         draw(real_w, real_h, script_name)
     end
@@ -1033,7 +1702,7 @@ end)
 file_timer:kill()
 
 local function clear()
-    if not show_thumbnail and not last_seek_time and not last_x then
+    if not show_thumbnail and not last_seek_time and not last_x and not overlay_shown then
         return
     end
     file_timer:kill()
@@ -1045,11 +1714,14 @@ local function clear()
         activity_timer:resume()
     end
     last_seek_time = nil
-    pending_seek_fast = nil
+    thumb_timestamp = nil
     show_thumbnail = false
     last_x = nil
     last_y = nil
-    mp.commandv("script-message", "thumbfast-rendered", "0")
+    if overlay_shown then
+        overlay_shown = false
+        mp.commandv("script-message", "thumbfast-rendered", "0")
+    end
     if script_name then return end
     if pre_0_30_0 then
         mp.command_native({"overlay-remove", options.overlay_id})
@@ -1065,9 +1737,7 @@ local function quit()
         return
     end
     pending_loadfile = nil
-    pending_seek_fast = nil
     run("quit")
-    close_pipe()
     spawned = false
     real_w, real_h = nil, nil
     clear()
@@ -1089,20 +1759,30 @@ local function thumb(time, r_x, r_y, script)
     end
 
     script_name = script
+
+    -- Fast path for Bilibili / YouTube when sprite-sheet pack is loaded in RAM:
+    -- 0ms instant lookup & redraw at (x, y) without any network seek!
+    if sprite_pack and sprite_pack.frames and #sprite_pack.frames > 0 then
+        show_thumbnail = true
+        last_x, last_y = x, y
+        last_seek_time = time
+        if write_sprite_frame_to_bgra(time) then
+            draw(real_w, real_h, script)
+        end
+        return
+    end
+
+    if sprite_fetching then
+        show_thumbnail = true
+        last_x, last_y = x, y
+        last_seek_time = time
+        return
+    end
+
     if last_x ~= x or last_y ~= y or not show_thumbnail then
         show_thumbnail = true
         last_x, last_y = x, y
-        -- Only redraw existing thumbnail if we already have one decoded for close proximity (within 3s)
-        -- to prevent displaying an outdated, stuck image from another scene when scrubbing quickly
-        if real_w and real_h and thumb_timestamp and math.abs((time or 0) - (thumb_timestamp or 0)) < 3 then
-            draw(real_w, real_h, script)
-        else
-            -- If user scrubbed far away or no frame is ready yet, clear stale overlay and hide empty box
-            mp.commandv("script-message", "thumbfast-rendered", "0")
-            if not script and not pre_0_30_0 then
-                mp.command_native_async({"overlay-remove", options.overlay_id}, function() end)
-            end
-        end
+        draw(real_w, real_h, script)
     end
 
     if options.quit_after_inactivity > 0 then
@@ -1112,15 +1792,11 @@ local function thumb(time, r_x, r_y, script)
         activity_timer:resume()
     end
 
-    if not file_timer:is_enabled() then file_timer:resume() end
-
-    if time == last_seek_time and spawned and pending_seek_fast == nil then return end
+    if time == last_seek_time then return end
     last_seek_time = time
-    if not spawned then
-        spawn(time)
-    else
-        request_seek()
-    end
+    if not spawned then spawn(time) end
+    request_seek()
+    if not file_timer:is_enabled() then file_timer:resume() end
 end
 
 local function watch_changes()
@@ -1146,6 +1822,15 @@ local function watch_changes()
         info(effective_w, effective_h)
     elseif last_has_vid ~= has_vid and has_vid ~= 0 then
         info(effective_w, effective_h)
+    end
+
+    -- Start online sprite-sheet extraction for Bilibili / YouTube as soon as dimensions are known
+    if not disabled and get_online_page_url() then
+        if resized and sprite_pack then
+            sprite_pack = nil
+            sprite_fetching = false
+        end
+        start_online_sprite_fetch()
     end
 
     if spawned then
@@ -1179,7 +1864,7 @@ local function watch_changes()
     last_crop = properties["video-crop"]
     last_has_vid = has_vid
 
-    if not spawned and not disabled and options.spawn_first and effective_w and effective_h then
+    if not spawned and not disabled and not sprite_pack and not sprite_fetching and options.spawn_first and resized then
         spawn(mp.get_property_number("time-pos", 0))
         file_timer:resume()
     end
@@ -1234,20 +1919,24 @@ end
 
 local function file_load()
     pending_loadfile = nil
-    pending_seek_fast = nil
+    sprite_pack = nil
+    sprite_fetching = false
+    sprite_failed = false
+    sprite_seq = sprite_seq + 1
     if spawned then
         run("quit")
     end
     clear()
     remove_thumbnail_files()
+    spawn_seq = spawn_seq + 1
+    options.socket = base_socket .. "_" .. spawn_seq
+    options.thumbnail = base_thumbnail .. "_" .. spawn_seq
     spawned = false
     real_w, real_h = nil, nil
     last_real_w, last_real_h = nil, nil
     last_tone_mapping = nil
     last_seek_time = nil
-    last_sent_seek_time = nil
     thumb_timestamp = nil
-    spawn_time = nil
     if info_timer then
         info_timer:kill()
         info_timer = nil
@@ -1255,7 +1944,9 @@ local function file_load()
 
     calc_dimensions()
     info(effective_w, effective_h)
-    dirty = true
+    if not disabled and get_online_page_url() then
+        start_online_sprite_fetch()
+    end
 end
 
 local function shutdown()
@@ -1274,19 +1965,9 @@ local function on_duration(prop, val)
     elseif mode == "no" then
         allow_fast_seek = true
     else
-        -- On network streams (YouTube/Bilibili), fast keyframe seek during scrub is essential for smooth responsiveness
         allow_fast_seek = properties["demuxer-via-network"] or (val or 30) >= 30
     end
 end
-
--- Capture post-ytdl_hook (priority 10) and post-BTR (priority 20) stream properties
-mp.add_hook("on_load", 50, function()
-    properties["stream-open-filename"] = mp.get_property("stream-open-filename")
-    properties["http-header-fields"] = mp.get_property_native("http-header-fields")
-    properties["user-agent"] = mp.get_property("user-agent")
-    properties["referrer"] = mp.get_property("referrer")
-    properties["cookies-file"] = mp.get_property("cookies-file")
-end)
 
 mp.observe_property("current-tracks/video", "native", function(name, value)
     if pre_0_33_0 then
