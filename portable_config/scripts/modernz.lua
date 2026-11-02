@@ -3069,11 +3069,11 @@ local function render_elements(master_ass, osc_vis, wc_vis)
 
                             -- Only draw the solid dark backing box & shadow when a thumbnail is actually rendered on screen,
                             -- avoiding both a solid black empty box and a transparent empty frame while waiting for decode
-                            local box_visible = (thumbfast.available and not thumbfast.disabled) and thumbfast.rendered
+                            local box_visible = ((thumbfast.available and not thumbfast.disabled) and thumbfast.rendered)
                                 or (not thumbfast.available and not thumbz.disabled)
                             if box_visible then
                                 glass_rect(elem_ass, box_x, box_y, box_w, box_h, thumb_radius,
-                                    {color = user_opts.thumbnail_box_color, fill_alpha = 0,
+                                    {color = user_opts.thumbnail_box_color, fill_alpha = opacity_alpha(0),
                                      edge_alpha = opacity_alpha(18), rim = false,
                                      shadow_blur = 16, shadow_y = 6, shadow_alpha = 0xA0})
 
