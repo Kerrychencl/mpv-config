@@ -447,6 +447,22 @@ do
         assert_test("thumbfast forces allow_fast_seek on network streams for rapid scrub",
             t_content:find("allow_fast_seek = properties%[\"demuxer%-via%-network\"%] or %(val or 30%) >= 30") ~= nil,
             "missing network allow_fast_seek enforcement")
+
+        assert_test("thumbfast adds --force-seekable=yes for network range seek responsiveness",
+            t_content:find("%-%-force%-seekable=yes") ~= nil,
+            "missing --force-seekable=yes in thumbfast args")
+
+        assert_test("thumbfast forwards cookies-file to subprocess if available",
+            t_content:find("%-%-cookies%-file=") ~= nil and t_content:find("cookies%-file") ~= nil,
+            "missing cookies-file forwarding in thumbfast")
+
+        assert_test("thumbfast handles BTR localhost accelerated streams inside EDL",
+            t_content:find("127%%.0%%.0%%.1") ~= nil and t_content:find("/stream") ~= nil,
+            "missing BTR stream URL recognition in extract_direct_url")
+
+        assert_test("thumbfast clears stale overlay on distant scrubbing",
+            t_content:find("overlay%-remove") ~= nil and t_content:find("time or 0") ~= nil,
+            "missing stale overlay removal on distant scrubbing")
     else
         assert_test("thumbfast files exist", false, "file not found")
     end
