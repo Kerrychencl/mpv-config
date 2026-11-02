@@ -71,8 +71,15 @@
   [PASS] windowtitle element uses glass_window_title style under glass_ui
   [PASS] observe_cached watches media-title and title to request_init_resize
 
+[TEST 14] Thumbfast Network Streams & Anti-Stuck Thumbnail Logic
+  [PASS] thumbfast enables network streams in config (network=yes)
+  [PASS] thumbfast passes demuxer-lavf-o reconnect parameters to subprocess
+  [PASS] thumbfast move_file uses pcall protection against Windows file lock errors
+  [PASS] thumbfast tracks thumb_timestamp and avoids stale image draws
+  [PASS] thumbfast forces allow_fast_seek on network streams for rapid scrub
+
 ================================================================================
-  CODE LOGIC SUMMARY: Total 43 | Passed: 43 | Failed: 0
+  CODE LOGIC SUMMARY: Total 48 | Passed: 48 | Failed: 0
 ================================================================================
 
 [VISUAL TESTS] Performing In-Engine Visual Screenshots & GUI Execution

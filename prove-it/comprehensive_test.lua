@@ -414,6 +414,44 @@ do
     end
 end
 
+-- -----------------------------------------------------------------------------
+-- 14. Thumbfast Network Thumbnail Demuxing & Windows File Locking Resilience
+-- -----------------------------------------------------------------------------
+log("\n[TEST 14] Thumbfast Network Streams & Anti-Stuck Thumbnail Logic")
+do
+    local tf_file = open_cfg_file("portable_config/scripts/thumbfast.lua")
+    local tf_conf = open_cfg_file("portable_config/script-opts/thumbfast.conf")
+    if tf_file and tf_conf then
+        local t_content = tf_file:read("*all")
+        local c_content = tf_conf:read("*all")
+        tf_file:close()
+        tf_conf:close()
+
+        assert_test("thumbfast enables network streams in config (network=yes)",
+            c_content:find("network=yes") ~= nil,
+            "network not set to yes in thumbfast.conf")
+
+        assert_test("thumbfast passes demuxer-lavf-o reconnect parameters to subprocess",
+            t_content:find("reconnect=1,reconnect_streamed=1,reconnect_delay_max=5") ~= nil,
+            "missing reconnect parameters in thumbfast subprocess")
+
+        assert_test("thumbfast move_file uses pcall protection against Windows file lock errors",
+            t_content:find("local ok, err = pcall%(function%(%) return os%.rename%(from, to%) end%)") ~= nil,
+            "missing pcall protection in move_file")
+
+        assert_test("thumbfast tracks thumb_timestamp and avoids stale image draws",
+            t_content:find("thumb_timestamp = last_seek_time") ~= nil and
+            t_content:find("math%.abs%(%(time or 0%) %- %(thumb_timestamp or 0%)%) < 3") ~= nil,
+            "missing thumb_timestamp tracking or stale frame filter")
+
+        assert_test("thumbfast forces allow_fast_seek on network streams for rapid scrub",
+            t_content:find("allow_fast_seek = properties%[\"demuxer%-via%-network\"%] or %(val or 30%) >= 30") ~= nil,
+            "missing network allow_fast_seek enforcement")
+    else
+        assert_test("thumbfast files exist", false, "file not found")
+    end
+end
+
 log("\n================================================================================")
 log(string.format("  CODE LOGIC SUMMARY: Total %d | Passed: %d | Failed: %d", pass_count + fail_count, pass_count, fail_count))
 log("================================================================================")
