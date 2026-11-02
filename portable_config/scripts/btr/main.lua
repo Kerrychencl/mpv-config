@@ -255,9 +255,15 @@ local function resolve_target_host(original_host)
         end
         return MAINLAND_HOSTS[3].id -- 華為雲
     elseif settings.cdn_mode == "overseas" then
-        return settings.preferred_host or OVERSEAS_HOSTS[1].id
+        if settings.preferred_host and settings.preferred_host ~= "" and settings.preferred_host ~= "auto" then
+            return settings.preferred_host
+        end
+        return OVERSEAS_HOSTS[1].id
     elseif settings.cdn_mode == "mainland" then
-        return settings.preferred_host or MAINLAND_HOSTS[3].id
+        if settings.preferred_host and settings.preferred_host ~= "" and settings.preferred_host ~= "auto" then
+            return settings.preferred_host
+        end
+        return MAINLAND_HOSTS[3].id
     else
         return settings.preferred_host or settings.cdn_mode or original_host or MAINLAND_HOSTS[3].id
     end

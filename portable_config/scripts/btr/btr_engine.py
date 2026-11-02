@@ -329,6 +329,7 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             threads = 16
         threads = max(1, min(64, threads))
+        is_thumb = query.get("thumb", ["0"])[0].split(',')[0].split(';')[0] == "1" or threads <= 1
 
         # Parse requested Range header from MPV client
         range_header = self.headers.get("Range")
@@ -377,8 +378,9 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
 
         CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
 
-        # For small requests (e.g. metadata probes < 1MB), bypass thread pool for zero-overhead streaming
-        if content_len <= CHUNK_SIZE:
+        # For small requests or thumbnailer seeks (thumb=1 / threads=1), bypass thread pool
+        # so seekbar scrubbing never spawns 32 threads or prefetches 64MB per keyframe seek.
+        if content_len <= CHUNK_SIZE or is_thumb:
             headers = dict(DEFAULT_HEADERS)
             headers["Range"] = f"bytes={req_start}-{req_end}"
             req = urllib.request.Request(stream_url, headers=headers)
@@ -430,10 +432,17 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                     try:
                         with urllib.request.urlopen(chunk_req, timeout=6) as c_resp:
                             if c_resp.status in (200, 206):
-                                data = c_resp.read()
-                                if len(data) == (c_end - c_start + 1):
+                                buf = bytearray()
+                                while not stop_event.is_set():
+                                    piece = c_resp.read(128 * 1024)
+                                    if not piece:
+                                        break
+                                    buf.extend(piece)
+                                if stop_event.is_set():
+                                    return
+                                if len(buf) == (c_end - c_start + 1):
                                     with download_cond:
-                                        downloaded[c_idx] = data
+                                        downloaded[c_idx] = bytes(buf)
                                         download_cond.notify_all()
                                     return
                     except Exception:
@@ -444,8 +453,8 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                 downloaded[c_idx] = None
                 download_cond.notify_all()
 
-        # Bounded prefetch window: max (threads * 2) or 16 chunks in flight (~16-32 MB RAM max)
-        PREFETCH_WINDOW = max(threads * 2, 8)
+        # Bounded prefetch window: cap at 16 chunks in flight (~16 MB max) to prevent CDN choke on seek
+        PREFETCH_WINDOW = min(max(threads, 4), 16)
         executor = ThreadPoolExecutor(max_workers=threads)
         next_to_submit = 0
 

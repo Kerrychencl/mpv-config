@@ -916,7 +916,7 @@ local function contains(list, item)
     return false
 end
 
--- seekbar thumbnails come from thumbz (scripts/thumbz.lua)
+-- seekbar thumbnails come from thumbfast (preferred) or thumbz (fallback)
 local thumbz = {
     width = 0,
     height = 0,
@@ -929,13 +929,21 @@ local thumbfast = {
     height = 0,
     disabled = true,
     available = false,
+    shown = false,    -- a thumbnail was requested and not hidden since
+    rendered = false, -- a valid thumbnail frame is currently drawn on overlay
 }
 
 local function thumbz_hover(time, x, y)
-    thumbz.shown = true
-    mp.commandv("script-message-to", "thumbz", "hover", time, x, y)
     if thumbfast.available and not thumbfast.disabled then
+        if thumbz.shown then
+            thumbz.shown = false
+            mp.commandv("script-message-to", "thumbz", "hide")
+        end
+        thumbfast.shown = true
         mp.commandv("script-message-to", "thumbfast", "thumb", time, x, y)
+    elseif not thumbz.disabled then
+        thumbz.shown = true
+        mp.commandv("script-message-to", "thumbz", "hover", time, x, y)
     end
 end
 
@@ -945,8 +953,12 @@ local function thumbz_hide()
         thumbz.shown = false
         mp.commandv("script-message-to", "thumbz", "hide")
     end
-    if thumbfast.available then
-        mp.commandv("script-message-to", "thumbfast", "clear")
+    if thumbfast.shown or thumbfast.rendered then
+        thumbfast.shown = false
+        thumbfast.rendered = false
+        if thumbfast.available then
+            mp.commandv("script-message-to", "thumbfast", "clear")
+        end
     end
 end
 
@@ -3053,19 +3065,25 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                             local box_w = math.floor((thumb_w + 2 * thumb_pad) * r_w + 0.5)
                             local box_h = math.floor((thumb_h + 2 * thumb_pad) * r_h + 0.5)
 
-                            glass_rect(elem_ass, box_x, box_y, box_w, box_h, thumb_radius,
-                                {color = user_opts.thumbnail_box_color, fill_alpha = 0,
-                                 edge_alpha = opacity_alpha(18), rim = false,
-                                 shadow_blur = 16, shadow_y = 6, shadow_alpha = 0xA0})
-
                             thumbz_hover(hover_sec, thumb_x, target_screen_y)
+
+                            -- Only draw the solid dark backing box & shadow when a thumbnail is actually rendered on screen,
+                            -- avoiding both a solid black empty box and a transparent empty frame while waiting for decode
+                            local box_visible = (thumbfast.available and not thumbfast.disabled) and thumbfast.rendered
+                                or (not thumbfast.available and not thumbz.disabled)
+                            if box_visible then
+                                glass_rect(elem_ass, box_x, box_y, box_w, box_h, thumb_radius,
+                                    {color = user_opts.thumbnail_box_color, fill_alpha = 0,
+                                     edge_alpha = opacity_alpha(18), rim = false,
+                                     shadow_blur = 16, shadow_y = 6, shadow_alpha = 0xA0})
+
+                                -- Advance anchor above the thumbnail
+                                current_y = box_y - gap
+                            end
 
                             -- Keep tooltips anchored to the thumbnail center even at window edges
                             tx = (thumb_x + thumb_w / 2) * r_w
                             an = 2
-
-                            -- Advance anchor above the thumbnail
-                            current_y = box_y - gap
                         end
 
                         if chapter_text and r_w > 0 then
@@ -7066,8 +7084,8 @@ end
 
 local function show_osc()
     if state.idle_active then return end
-    -- the pointer is probably heading for the seekbar: let thumbz get ready
-    if not state.osc_visible and not thumbz.disabled then
+    -- the pointer is probably heading for the seekbar: let thumbz get ready (only if thumbfast is not active)
+    if not state.osc_visible and not thumbfast.available and not thumbz.disabled then
         mp.commandv("script-message-to", "thumbz", "prepare")
     end
     show_bar("osc", "showtime", "osc_visible", "anitype", osc_visible)
@@ -7660,6 +7678,7 @@ mp.register_event("file-loaded", function()
     if oos == "top" or oos == "both" then show_wc() end
 end)
 mp.register_event("start-file", function()
+    thumbz_hide()
     -- reset ab loop on new file start
     mp.set_property("ab-loop-a", "no")
     mp.set_property("ab-loop-b", "no")
@@ -8073,12 +8092,21 @@ mp.register_script_message("thumbfast-info", function(json)
         thumbfast.height = data.height
         thumbfast.disabled = data.disabled
         thumbfast.available = true
-        if not thumbz.available or thumbz.disabled then
-            thumbz.width = data.width
-            thumbz.height = data.height
-            thumbz.disabled = data.disabled
-            thumbz.available = true
+        if data.disabled then
+            thumbfast.rendered = false
         end
+        if thumbz.shown then
+            thumbz.shown = false
+            mp.commandv("script-message-to", "thumbz", "hide")
+        end
+        request_tick()
+    end
+end)
+
+mp.register_script_message("thumbfast-rendered", function(val)
+    local is_rendered = (val ~= "0" and val ~= "false" and val ~= "")
+    if thumbfast.rendered ~= is_rendered then
+        thumbfast.rendered = is_rendered
         request_tick()
     end
 end)
@@ -8091,8 +8119,8 @@ mp.register_script_message("thumbz-info", function(json)
     end
     thumbz.width, thumbz.height, thumbz.disabled = data.width, data.height, data.disabled
     thumbz.present = true
-    -- the OSC may already be up (e.g. osc_on_start): let thumbz get ready right away
-    if state.osc_visible and not thumbz.disabled then
+    -- the OSC may already be up (e.g. osc_on_start): let thumbz get ready right away (only if thumbfast is not active)
+    if state.osc_visible and not thumbfast.available and not thumbz.disabled then
         mp.commandv("script-message-to", "thumbz", "prepare")
     end
 end)

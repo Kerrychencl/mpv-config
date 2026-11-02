@@ -33,7 +33,7 @@ local options = {
     overlay_id = 42,
 
     -- Spawn thumbnailer on file load for faster initial thumbnails
-    spawn_first = false,
+    spawn_first = true,
 
     -- Close thumbnailer process after an inactivity period in seconds, 0 to disable
     quit_after_inactivity = 0,
@@ -90,7 +90,7 @@ function subprocess(args, async, callback)
         -- FIXME: figure out which exact env var needs to be stripped. (PR: #144, Issue: #106 and #139)
         local env = os_name == "darwin" and "PATH="..os.getenv("PATH") or nil
         if async then
-            return mp.command_native_async({name = "subprocess", playback_only = true, args = args, env = env}, callback)
+            return mp.command_native_async({name = "subprocess", playback_only = false, args = args, env = env}, callback)
         else
             return mp.command_native({name = "subprocess", playback_only = false, capture_stdout = true, args = args, env = env})
         end
@@ -164,6 +164,8 @@ local spawn_waiting = false
 local spawn_working = false
 local script_written = false
 local pending_loadfile = nil
+local pending_seek_fast = nil
+local spawn_time = nil
 
 local dirty = false
 
@@ -171,6 +173,7 @@ local x, y
 local last_x, last_y
 
 local last_seek_time
+local last_sent_seek_time
 local thumb_timestamp
 
 local effective_w, effective_h = options.max_width, options.max_height
@@ -373,7 +376,7 @@ local function vf_string(filters, full)
         end
     end
 
-    if (full and options.tone_mapping ~= "no") or options.tone_mapping == "auto" then
+    if full and (options.tone_mapping ~= "no" and options.tone_mapping ~= false) then
         if properties["video-params"] and properties["video-params"]["primaries"] == "bt.2020" then
             local tone_mapping = options.tone_mapping
             if tone_mapping == "auto" then
@@ -449,12 +452,20 @@ local function info(w, h)
     end
 end
 
-local function remove_thumbnail_files()
+local function close_pipe()
+    if options.direct_io and winapi and winapi.hPipe and winapi.hPipe ~= winapi.INVALID_HANDLE_VALUE then
+        pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
+        winapi.hPipe = nil
+    end
     if file then
         pcall(function() file:close() end)
         file = nil
         file_bytes = 0
     end
+end
+
+local function remove_thumbnail_files()
+    close_pipe()
     pcall(function()
         os.remove(options.thumbnail)
         os.remove(options.thumbnail..".bgra")
@@ -468,35 +479,66 @@ local function clean_edl_url(url)
     return clean
 end
 
+local function optimize_btr_url(url)
+    if not url then return url end
+    if url:match("^https?://127%.0%.0%.1:%d+/stream") then
+        if url:find("([?&])threads=%d+") then
+            url = url:gsub("([?&])threads=%d+", "%1threads=1")
+        else
+            url = url .. (url:find("?", 1, true) and "&" or "?") .. "threads=1"
+        end
+        if not url:find("thumb=1", 1, true) then
+            url = url .. "&thumb=1"
+        end
+    end
+    return url
+end
+
 local function extract_direct_url(fn)
     if not fn or fn == "" then return fn end
-    -- If it is already a direct stream or localhost accelerator stream, preserve as-is
     if fn:match("^https?://127%.0%.0%.1:%d+/stream") then
-        return fn
+        return optimize_btr_url(fn)
     end
     if fn:match("^edl://") then
-        -- Check for local accelerated stream inside EDL first
+        -- If fragmented MP4 DASH is used inside EDL, preserve full EDL
+        if fn:find("!mp4_dash", 1, true) then
+            return fn
+        end
+        -- Parse EDL stream segments using exact %<len>% byte lengths so URLs containing commas
+        -- (e.g. Bilibili &sigparams=cdn,expires,len... or YouTube params) are never truncated
+        local fallback_url = nil
+        local pos = 1
+        while pos <= #fn do
+            local s, e, len_str = fn:find("%%(%d+)%%https?://", pos)
+            if not s then break end
+            local len = tonumber(len_str)
+            local url_start = s + #len_str + 2
+            if len and len > 0 and (url_start + len - 1) <= #fn then
+                local candidate = fn:sub(url_start, url_start + len - 1)
+                -- Check the header immediately preceding this URL in the same !new_stream segment
+                local seg_start = fn:sub(1, s - 1):match(".*!new_stream()") or 1
+                local seg_header = fn:sub(seg_start, s - 1)
+                local is_audio_only = seg_header:find("media_type=audio", 1, true) and not seg_header:find("media_type=video", 1, true)
+                if not is_audio_only then
+                    return optimize_btr_url(candidate)
+                elseif not fallback_url then
+                    fallback_url = candidate
+                end
+                pos = url_start + len
+            else
+                pos = e + 1
+            end
+        end
+        if fallback_url then
+            return optimize_btr_url(fallback_url)
+        end
         local btr_match = fn:match("(https?://127%.0%.0%.1:%d+/stream[^\";\r\n]*)")
         if btr_match then
-            return clean_edl_url(btr_match)
-        end
-        local len_str, url_body = fn:match("media_type=video.-;%%(%d+)%%(https?://.+)")
-        if len_str and url_body then
-            local len = tonumber(len_str)
-            if len and len > 0 and len <= #url_body then
-                return url_body:sub(1, len)
-            end
-        end
-        local len_str2, url_body2 = fn:match("%%(%d+)%%(https?://.+)")
-        if len_str2 and url_body2 then
-            local len = tonumber(len_str2)
-            if len and len > 0 and len <= #url_body2 then
-                return url_body2:sub(1, len)
-            end
+            return optimize_btr_url(clean_edl_url(btr_match))
         end
         local url3 = fn:match("(https?://[^;\r\n]+)")
         if url3 then
-            return clean_edl_url(url3)
+            return optimize_btr_url(clean_edl_url(url3))
         end
     end
     return fn
@@ -510,6 +552,11 @@ local function spawn(time)
     local path = properties["path"]
     if path == nil then return end
 
+    if not properties["video-out-params"] or not properties["video-out-params"]["dw"] or properties["video-out-params"]["dw"] == 0 then
+        mp.msg.verbose("thumbfast: video-out-params not ready, deferring spawn")
+        return
+    end
+
     if options.quit_after_inactivity > 0 then
         if show_thumbnail or activity_timer:is_enabled() then
             activity_timer:kill()
@@ -521,15 +568,17 @@ local function spawn(time)
     options.socket = base_socket .. "_" .. spawn_seq
     options.thumbnail = base_thumbnail .. "_" .. spawn_seq
 
+    close_pipe()
     if options.direct_io and os_name == "windows" then
         winapi.socket_wc = winapi.MultiByteToWideChar("\\\\.\\pipe\\" .. options.socket)
     end
 
-    local open_filename = properties["stream-open-filename"]
-    local ytdl = open_filename and properties["demuxer-via-network"] and path ~= open_filename
+    local open_filename = properties["stream-open-filename"] or mp.get_property("stream-open-filename")
+    local is_network = properties["demuxer-via-network"] or (path and path:find("^https?://") ~= nil) or (open_filename and open_filename:find("^edl://") ~= nil)
+    local ytdl = open_filename and is_network and path ~= open_filename
     if ytdl then
         path = extract_direct_url(open_filename)
-    elseif path and path:match("^edl://") then
+    elseif path and (path:match("^edl://") or path:match("^https?://127%.0%.0%.1:%d+/stream")) then
         path = extract_direct_url(path)
     end
 
@@ -538,18 +587,24 @@ local function spawn(time)
     local vid = properties["vid"]
     has_vid = vid or 0
 
+    local hwdec_opt = "no"
+    if options.hwdec then
+        hwdec_opt = os_name == "windows" and "d3d11va-copy,nvdec-copy,auto-copy" or "auto-copy"
+    end
+
     local args = {
         mpv_path, "--no-config", "--msg-level=all=no", "--idle", "--pause", "--keep-open=always", "--really-quiet", "--no-terminal",
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--load-stats-overlay=no", "--load-osd-console=no", "--load-auto-profiles=no",
         "--edition="..(properties["edition"] or "auto"), "--vid="..(vid or "auto"), "--no-sub", "--no-audio",
         "--start="..time, allow_fast_seek and "--hr-seek=no" or "--hr-seek=yes",
-        "--force-seekable=yes",
+        "--force-seekable=yes", "--cache=no",
         "--ytdl-format=worst", "--demuxer-readahead-secs=0",
-        properties["demuxer-via-network"] and "--demuxer-max-bytes=4MiB" or "--demuxer-max-bytes=128KiB",
-        properties["demuxer-via-network"] and "--stream-buffer-size=512KiB" or "--stream-buffer-size=128KiB",
+        is_network and "--demuxer-max-bytes=1MiB" or "--demuxer-max-bytes=128KiB",
+        is_network and "--demuxer-max-back-bytes=256KiB" or "--demuxer-max-back-bytes=64KiB",
+        "--stream-buffer-size=128KiB",
         "--network-timeout=10",
         "--demuxer-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5",
-        "--vd-lavc-skiploopfilter=all", "--vd-lavc-software-fallback=1", "--vd-lavc-fast", "--vd-lavc-threads=2", "--hwdec="..(options.hwdec and "auto" or "no"),
+        "--vd-lavc-skiploopfilter=all", "--vd-lavc-software-fallback=1", "--vd-lavc-fast", "--vd-lavc-threads=4", "--hwdec="..hwdec_opt,
         "--vf="..vf_string(filters_all, true),
         "--sws-scaler=fast-bilinear",
         "--video-rotate="..last_rotate,
@@ -588,24 +643,53 @@ local function spawn(time)
         table.insert(args, "--scripts="..client_script_path)
     end
 
-    local ua = properties["user-agent"]
+    local ua = properties["user-agent"] or mp.get_property("user-agent")
     if ua and ua ~= "" then
         table.insert(args, "--user-agent=" .. ua)
     end
-    local ref = properties["referrer"]
+    local ref = properties["referrer"] or mp.get_property("referrer")
     if ref and ref ~= "" then
         table.insert(args, "--referrer=" .. ref)
     end
 
-    local http_headers = properties["http-header-fields"]
+    local http_headers = properties["http-header-fields"] or mp.get_property_native("http-header-fields")
     if http_headers and type(http_headers) == "table" then
         for _, h in ipairs(http_headers) do
             table.insert(args, "--http-header-fields-append=" .. h)
         end
     end
 
-    if properties["cookies-file"] and properties["cookies-file"] ~= "" then
-        table.insert(args, "--cookies-file=" .. properties["cookies-file"])
+    local cookies_file = properties["cookies-file"] or mp.get_property("cookies-file")
+    if cookies_file and cookies_file ~= "" then
+        table.insert(args, "--cookies-file=" .. cookies_file)
+    else
+        local temp_dir = os.getenv("TEMP") or "C:\\Users\\Administrator\\AppData\\Local\\Temp"
+        local active_cookies = temp_dir .. "\\mpv_active_cookies.txt"
+        local f = io.open(active_cookies, "r")
+        if f then
+            f:close()
+            table.insert(args, "--cookies-file=" .. active_cookies)
+        end
+    end
+
+    -- Bilibili anti-hotlinking defense: Ensure slave mpv carries Referer
+    local full_path_info = ((path or "") .. " " .. (open_filename or "") .. " " .. (properties["path"] or "")):lower()
+    local is_bilibili = full_path_info:find("bilibili%.com") or full_path_info:find("bilivideo%.com") or full_path_info:find("bilivideo%.cn") or full_path_info:find("akamaized%.net")
+    if is_bilibili then
+        local has_bili_ref = false
+        if ref and ref:find("bilibili%.com") then has_bili_ref = true end
+        if http_headers and type(http_headers) == "table" then
+            for _, h in ipairs(http_headers) do
+                if h:lower():match("^referer:") and h:find("bilibili%.com") then
+                    has_bili_ref = true
+                    break
+                end
+            end
+        end
+        if not has_bili_ref then
+            table.insert(args, "--referrer=https://www.bilibili.com")
+            table.insert(args, "--http-header-fields-append=Referer: https://www.bilibili.com")
+        end
     end
 
     local needs_ipc_load = (#path > 4000) or (path:match("^edl://") ~= nil)
@@ -619,12 +703,20 @@ local function spawn(time)
 
     spawned = true
     spawn_waiting = true
+    spawn_time = time
+    last_sent_seek_time = time
+    pending_seek_fast = nil
 
+    local current_seq = spawn_seq
     subprocess(args, true,
         function(success, result)
+            if current_seq ~= spawn_seq then
+                return
+            end
             if spawn_waiting and (success == false or (result.status ~= 0 and result.status ~= -2)) then
                 spawned = false
                 spawn_waiting = false
+                close_pipe()
                 options.tone_mapping = "no"
                 mp.msg.error("mpv subprocess create failed")
                 if not spawn_working then -- notify users of required configuration
@@ -665,25 +757,52 @@ local function spawn(time)
     )
 end
 
+local function write_pipe_direct(buf)
+    if not winapi.hPipe or winapi.hPipe == winapi.INVALID_HANDLE_VALUE then
+        local h = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
+        if h == winapi.INVALID_HANDLE_VALUE then
+            return false
+        end
+        winapi.C.SetNamedPipeHandleState(h, winapi.PIPE_NOWAIT, nil, nil)
+        winapi.hPipe = h
+    end
+
+    local written = winapi.ffi.new("unsigned long[1]")
+    local ok = winapi.C.WriteFile(winapi.hPipe, buf, #buf, written, nil)
+    if not ok or written[0] == 0 then
+        pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
+        winapi.hPipe = nil
+        -- Retry once immediately in case previous handle was closed by server
+        local h = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
+        if h == winapi.INVALID_HANDLE_VALUE then
+            return false
+        end
+        winapi.C.SetNamedPipeHandleState(h, winapi.PIPE_NOWAIT, nil, nil)
+        winapi.hPipe = h
+        ok = winapi.C.WriteFile(winapi.hPipe, buf, #buf, written, nil)
+        if not ok or written[0] == 0 then
+            pcall(function() winapi.C.CloseHandle(winapi.hPipe) end)
+            winapi.hPipe = nil
+            return false
+        end
+    end
+    return true
+end
+
 local function check_pending_loadfile()
     if not pending_loadfile then return end
 
+    local p = pending_loadfile
+    local target_time = last_seek_time or p.time or 0
+    local load_cmd = {
+        command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
+    }
+    local buf = mp.utils.format_json(load_cmd) .. "\n"
+
     if options.direct_io then
-        local hPipe = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
-        if hPipe ~= winapi.INVALID_HANDLE_VALUE then
-            local p = pending_loadfile
-            local target_time = last_seek_time or p.time or 0
-            local load_cmd = {
-                command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
-            }
-            local buf = mp.utils.format_json(load_cmd) .. "\n"
-            winapi.C.SetNamedPipeHandleState(hPipe, winapi.PIPE_NOWAIT, nil, nil)
-            local written = winapi.ffi.new("unsigned long[1]")
-            local ok = winapi.C.WriteFile(hPipe, buf, #buf, written, nil)
-            winapi.C.CloseHandle(hPipe)
-            if ok and written[0] > 0 then
-                pending_loadfile = nil
-            end
+        if write_pipe_direct(buf) then
+            pending_loadfile = nil
+            spawn_time = target_time
         end
         return
     end
@@ -697,41 +816,31 @@ local function check_pending_loadfile()
     end
 
     if file then
-        local p = pending_loadfile
         pending_loadfile = nil
-        local target_time = last_seek_time or p.time or 0
-        local load_cmd = {
-            command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
-        }
-        local json_str = mp.utils.format_json(load_cmd) .. "\n"
-        file:write(json_str)
+        spawn_time = target_time
+        file:write(buf)
         file:flush()
         file_bytes = 0
     end
 end
 
 local function run(command)
-    if not spawned then return end
+    if not spawned then return false end
 
     if pending_loadfile then
         check_pending_loadfile()
-        if pending_loadfile then return end
-    end
-
-    if options.direct_io then
-        local hPipe = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
-        if hPipe ~= winapi.INVALID_HANDLE_VALUE then
-            local buf = command .. "\n"
-            winapi.C.SetNamedPipeHandleState(hPipe, winapi.PIPE_NOWAIT, nil, nil)
-            local written = winapi.ffi.new("unsigned long[1]")
-            local ok = winapi.C.WriteFile(hPipe, buf, #buf, written, nil)
-            winapi.C.CloseHandle(hPipe)
-        end
-
-        return
+        if pending_loadfile then return false end
     end
 
     local command_n = command.."\n"
+
+    if options.direct_io then
+        local ok = write_pipe_direct(command_n)
+        if command == "quit" then
+            close_pipe()
+        end
+        return ok
+    end
 
     if os_name == "windows" then
         if file and file_bytes + #command_n >= 4096 then
@@ -744,15 +853,22 @@ local function run(command)
         end
     elseif pre_0_33_0 then
         subprocess({"/usr/bin/env", "sh", "-c", "echo '" .. command .. "' | socat - " .. options.socket})
-        return
+        return true
     elseif not file then
         file = io.open(options.socket, "r+")
     end
     if file then
-        file_bytes = file:seek("end")
-        file:write(command_n)
-        file:flush()
+        file_bytes = file:seek("end") or 0
+        local ok = file:write(command_n) and file:flush()
+        if not ok then
+            pcall(function() file:close() end)
+            file = nil
+            file_bytes = 0
+            return false
+        end
+        return true
     end
+    return false
 end
 
 local function draw(w, h, script)
@@ -761,8 +877,13 @@ local function draw(w, h, script)
         local scale_w, scale_h = options.scale_factor ~= 1 and (w * options.scale_factor) or nil, options.scale_factor ~= 1 and (h * options.scale_factor) or nil
         if pre_0_30_0 then
             mp.command_native({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h})
+            mp.commandv("script-message", "thumbfast-rendered", "1")
         else
-            mp.command_native_async({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h}, function() end)
+            mp.command_native_async({"overlay-add", options.overlay_id, x, y, options.thumbnail..".bgra", 0, "bgra", w, h, (4*w), scale_w, scale_h}, function()
+                if show_thumbnail then
+                    mp.commandv("script-message", "thumbfast-rendered", "1")
+                end
+            end)
         end
     elseif script then
         local json, err = mp.utils.format_json({width=w, height=h, scale_factor=options.scale_factor, x=x, y=y, socket=options.socket, thumbnail=options.thumbnail, overlay_id=options.overlay_id})
@@ -809,8 +930,13 @@ end
 
 local function seek(fast)
     if last_seek_time then
-        mp.msg.verbose("thumbfast seek: " .. (fast and "keyframes" or "exact") .. " to " .. tostring(last_seek_time))
-        run("async seek " .. last_seek_time .. (fast and " absolute+keyframes" or " absolute+exact"))
+        local cmd = "async seek " .. last_seek_time .. (fast and " absolute+keyframes" or " absolute+exact")
+        if run(cmd) then
+            pending_seek_fast = nil
+            last_sent_seek_time = last_seek_time
+        else
+            pending_seek_fast = (fast == true)
+        end
     end
 end
 
@@ -826,7 +952,10 @@ seek_timer = mp.add_periodic_timer(seek_period, function()
         if seek_period_counter >= delay_ticks then
             seek_timer:kill()
             if allow_fast_seek and get_exact_seek_mode() ~= "no" then
-                seek()
+                seek(false)
+            elseif last_seek_time then
+                -- Guarantee a final keyframe seek to the resting cursor position after scrubbing stops
+                seek(allow_fast_seek)
             end
         else
             seek_period_counter = seek_period_counter + 1
@@ -855,17 +984,32 @@ local function check_new_thumb()
     if not moved then return false end
     local finfo = mp.utils.file_info(tmp)
     if not finfo then return false end
+    local was_waiting = spawn_waiting
     spawn_waiting = false
     local w, h = real_res(effective_w, effective_h, finfo.size)
     if w then -- only accept valid thumbnails
         move_file(tmp, options.thumbnail..".bgra")
 
-        thumb_timestamp = last_seek_time
         real_w, real_h = w, h
         if real_w and (real_w ~= last_real_w or real_h ~= last_real_h) then
             last_real_w, last_real_h = real_w, real_h
             info(real_w, real_h)
         end
+
+        -- When the slave mpv just finished opening the network stream, the first decoded frame
+        -- is from --start=<spawn_time>. Any IPC seek sent while the demuxer was still opening
+        -- was ignored by mpv, so if the user moved the cursor (or if pre-spawned at t=0),
+        -- immediately issue a seek to last_seek_time now that the slave demuxer is ready!
+        if was_waiting and last_seek_time and spawn_time and math.abs(last_seek_time - spawn_time) > 0.5 then
+            thumb_timestamp = spawn_time
+            seek(allow_fast_seek)
+            if math.abs(last_seek_time - spawn_time) >= 3 then
+                return false
+            end
+        else
+            thumb_timestamp = last_seek_time or spawn_time
+        end
+
         if not show_thumbnail then
             file_timer:kill()
         end
@@ -879,6 +1023,9 @@ file_timer = mp.add_periodic_timer(file_check_period, function()
     if pending_loadfile then
         check_pending_loadfile()
     end
+    if pending_seek_fast ~= nil and last_seek_time then
+        seek(pending_seek_fast)
+    end
     if check_new_thumb() then
         draw(real_w, real_h, script_name)
     end
@@ -886,6 +1033,9 @@ end)
 file_timer:kill()
 
 local function clear()
+    if not show_thumbnail and not last_seek_time and not last_x then
+        return
+    end
     file_timer:kill()
     seek_timer:kill()
     if options.quit_after_inactivity > 0 then
@@ -895,10 +1045,11 @@ local function clear()
         activity_timer:resume()
     end
     last_seek_time = nil
-    thumb_timestamp = nil
+    pending_seek_fast = nil
     show_thumbnail = false
     last_x = nil
     last_y = nil
+    mp.commandv("script-message", "thumbfast-rendered", "0")
     if script_name then return end
     if pre_0_30_0 then
         mp.command_native({"overlay-remove", options.overlay_id})
@@ -914,7 +1065,9 @@ local function quit()
         return
     end
     pending_loadfile = nil
+    pending_seek_fast = nil
     run("quit")
+    close_pipe()
     spawned = false
     real_w, real_h = nil, nil
     clear()
@@ -941,10 +1094,11 @@ local function thumb(time, r_x, r_y, script)
         last_x, last_y = x, y
         -- Only redraw existing thumbnail if we already have one decoded for close proximity (within 3s)
         -- to prevent displaying an outdated, stuck image from another scene when scrubbing quickly
-        if not thumb_timestamp or math.abs((time or 0) - (thumb_timestamp or 0)) < 3 then
+        if real_w and real_h and thumb_timestamp and math.abs((time or 0) - (thumb_timestamp or 0)) < 3 then
             draw(real_w, real_h, script)
         else
-            -- If user scrubbed far away, clear the stale overlay so an outdated frame does not remain frozen
+            -- If user scrubbed far away or no frame is ready yet, clear stale overlay and hide empty box
+            mp.commandv("script-message", "thumbfast-rendered", "0")
             if not script and not pre_0_30_0 then
                 mp.command_native_async({"overlay-remove", options.overlay_id}, function() end)
             end
@@ -958,11 +1112,15 @@ local function thumb(time, r_x, r_y, script)
         activity_timer:resume()
     end
 
-    if time == last_seek_time then return end
-    last_seek_time = time
-    if not spawned then spawn(time) end
-    request_seek()
     if not file_timer:is_enabled() then file_timer:resume() end
+
+    if time == last_seek_time and spawned and pending_seek_fast == nil then return end
+    last_seek_time = time
+    if not spawned then
+        spawn(time)
+    else
+        request_seek()
+    end
 end
 
 local function watch_changes()
@@ -996,10 +1154,11 @@ local function watch_changes()
             local seek_time = last_seek_time
             run("quit")
             remove_thumbnail_files()
-            clear()
             spawned = false
-            spawn(seek_time or mp.get_property_number("time-pos", 0))
-            file_timer:resume()
+            if show_thumbnail or options.spawn_first or seek_time then
+                spawn(seek_time or mp.get_property_number("time-pos", 0))
+                file_timer:resume()
+            end
         else
             if rotate ~= last_rotate then
                 run("set video-rotate "..rotate)
@@ -1020,7 +1179,7 @@ local function watch_changes()
     last_crop = properties["video-crop"]
     last_has_vid = has_vid
 
-    if not spawned and not disabled and options.spawn_first and resized then
+    if not spawned and not disabled and options.spawn_first and effective_w and effective_h then
         spawn(mp.get_property_number("time-pos", 0))
         file_timer:resume()
     end
@@ -1075,16 +1234,20 @@ end
 
 local function file_load()
     pending_loadfile = nil
+    pending_seek_fast = nil
     if spawned then
         run("quit")
     end
     clear()
+    remove_thumbnail_files()
     spawned = false
     real_w, real_h = nil, nil
     last_real_w, last_real_h = nil, nil
     last_tone_mapping = nil
     last_seek_time = nil
+    last_sent_seek_time = nil
     thumb_timestamp = nil
+    spawn_time = nil
     if info_timer then
         info_timer:kill()
         info_timer = nil
@@ -1092,6 +1255,7 @@ local function file_load()
 
     calc_dimensions()
     info(effective_w, effective_h)
+    dirty = true
 end
 
 local function shutdown()
@@ -1114,6 +1278,15 @@ local function on_duration(prop, val)
         allow_fast_seek = properties["demuxer-via-network"] or (val or 30) >= 30
     end
 end
+
+-- Capture post-ytdl_hook (priority 10) and post-BTR (priority 20) stream properties
+mp.add_hook("on_load", 50, function()
+    properties["stream-open-filename"] = mp.get_property("stream-open-filename")
+    properties["http-header-fields"] = mp.get_property_native("http-header-fields")
+    properties["user-agent"] = mp.get_property("user-agent")
+    properties["referrer"] = mp.get_property("referrer")
+    properties["cookies-file"] = mp.get_property("cookies-file")
+end)
 
 mp.observe_property("current-tracks/video", "native", function(name, value)
     if pre_0_33_0 then

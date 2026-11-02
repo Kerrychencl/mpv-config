@@ -1,6 +1,7 @@
 # Large binaries exceeding GitHub limits
 *.exe
 *.dll
+*.old
 
 # Sensitive user credentials and dynamic cache
 *cookies*
@@ -11,12 +12,15 @@ portable_config/sponsorblock_shared/*
 !portable_config/sponsorblock_shared/sponsor_unified.py
 portable_config/file_browser-last_opened_directory
 
-# Temporary files and python cache
+# Temporary files, agent metadata, and python cache
+.agents/
 __pycache__/
 *.pyc
 *.part
 *.tmp
 *.log
 !prove-it/*.log
+prove-it/*_debug.log
+prove-it/settled_test.log
 *.bgra
 mpv_btr_port*.txt

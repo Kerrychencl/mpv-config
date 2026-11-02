@@ -14,9 +14,55 @@ local active_cookie_file = utils.join_path(temp_dir, "mpv_active_cookies.txt")
 
 local cached_bili_cookie = nil
 
+local function try_extract_browser_cookies()
+    local ytdl_path = utils.join_path(mpv_root, "yt-dlp.exe")
+    local info = utils.file_info(ytdl_path)
+    if not info then
+        ytdl_path = utils.join_path(mpv_root, "../yt-dlp.exe")
+        info = utils.file_info(ytdl_path)
+    end
+    if not info then ytdl_path = "yt-dlp" end
+    msg.info("[cookie-sync] 檢測到本地缺少 YouTube 憑證，嘗試自 Firefox 瀏覽器同步...")
+    local res = mp.command_native({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = true,
+        capture_stderr = true,
+        args = {
+            ytdl_path,
+            "--cookies-from-browser", "firefox",
+            "--cookies", user_cookie_file,
+            "--simulate", "--skip-download",
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+        }
+    })
+    if res and res.status == 0 then
+        msg.info("[cookie-sync] 成功自 Firefox 同步最新 Cookies！")
+        return true
+    end
+    msg.warn("[cookie-sync] 無法自瀏覽器同步 Cookies")
+    return false
+end
+
 local function sync_cookies()
     local f = io.open(user_cookie_file, "r")
-    if not f then
+    local content = nil
+    if f then
+        content = f:read("*all")
+        f:close()
+    end
+
+    if not content or not content:find("youtube%.com") then
+        if try_extract_browser_cookies() then
+            local f2 = io.open(user_cookie_file, "r")
+            if f2 then
+                content = f2:read("*all")
+                f2:close()
+            end
+        end
+    end
+
+    if not content then
         local out = io.open(active_cookie_file, "w")
         if out then
             out:write("# Netscape HTTP Cookie File\n")
@@ -24,9 +70,6 @@ local function sync_cookies()
         end
         return
     end
-
-    local content = f:read("*all")
-    f:close()
 
     local out = io.open(active_cookie_file, "w")
     if not out then return end
@@ -74,24 +117,39 @@ local function inject_cookie_header()
     local stream_path = mp.get_property("stream-open-filename", "")
     local target = (path .. " " .. stream_path):lower()
     if target:find("bilibili%.com") or target:find("bilivideo%.com") or target:find("akamaized%.net") or target:find("/upgcxcode/") then
+        local headers = mp.get_property_native("http-header-fields") or {}
+        local has_cookie = false
+        local has_referer = false
+        local has_origin = false
+        for _, h in ipairs(headers) do
+            local hl = h:lower()
+            if hl:match("^cookie:") then has_cookie = true end
+            if hl:match("^referer:") then has_referer = true end
+            if hl:match("^origin:") then has_origin = true end
+        end
+
+        if not has_referer then
+            mp.commandv("change-list", "http-header-fields", "append", "referer: https://www.bilibili.com")
+        end
+        if not has_origin then
+            mp.commandv("change-list", "http-header-fields", "append", "origin: https://www.bilibili.com")
+        end
+
         if not cached_bili_cookie then sync_cookies() end
-        if cached_bili_cookie and cached_bili_cookie ~= "" then
-            local headers = mp.get_property_native("http-header-fields") or {}
-            local has_cookie = false
-            for _, h in ipairs(headers) do
-                if h:lower():match("^cookie:") then
-                    has_cookie = true
-                    break
-                end
-            end
-            if not has_cookie then
-                mp.commandv("change-list", "http-header-fields", "append", "cookie: " .. cached_bili_cookie)
-                mp.msg.info("[cookie-sync] 已成功向 B 站串流請求注入本地 cookies.txt 身分憑證")
-            end
+        if cached_bili_cookie and cached_bili_cookie ~= "" and not has_cookie then
+            mp.commandv("change-list", "http-header-fields", "append", "cookie: " .. cached_bili_cookie)
+            mp.msg.info("[cookie-sync] 已成功向 B 站串流請求注入本地 cookies.txt 身分憑證")
         end
     end
 end
+
 sync_cookies()
 mp.register_event("start-file", sync_cookies)
 mp.add_hook("on_load", 15, inject_cookie_header)
+mp.register_script_message("sync-browser-cookies", function()
+    if try_extract_browser_cookies() then
+        sync_cookies()
+    end
+end)
+
 
