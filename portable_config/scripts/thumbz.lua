@@ -344,6 +344,7 @@ report("hello")
 local props = {}
 local size = nil              -- {w, h, rot, bytes} of rendered thumbnails
 local disabled = true
+local thumbfast_active = false -- yield seekbar thumbnails to thumbfast when active
 local broken = false          -- no renderer could be started this session
 local no_tonemap = false      -- HDR filters unavailable in this mpv's FFmpeg
 local announced = nil
@@ -508,7 +509,7 @@ local function media_path()
 end
 
 local function compute_disabled()
-    if broken or not size or not props.path then return true end
+    if thumbfast_active or broken or not size or not props.path then return true end
     local track = props["current-tracks/video"]
     if not track or not props.vid then return true end
     if track.albumart then
@@ -614,7 +615,7 @@ end
 
 -- how far away (s) a cached frame may be and still stand in for the hovered time
 local function stand_in_limit()
-    return math.max(15, (props.duration or 0) / 40)
+    return 3
 end
 
 -- the cached thumbnail closest in time (ties go to the earlier frame)
@@ -1081,8 +1082,8 @@ local function hover(time, x, y)
     if entry and (final or d <= stand_in_limit()) then
         entry.used = mp.get_time()
         draw(entry.path, x, y)
-    elseif shown then
-        draw(shown.path, x, y)
+    else
+        remove_overlay()
     end
 
     -- "resting" means the pointer stopped moving, not just that it stayed within one slot
@@ -1446,6 +1447,20 @@ mp.register_script_message("hover", hover)
 mp.register_script_message("hide", hide)
 mp.register_script_message("prepare", prepare)
 mp.register_script_message("covers", covers)
+mp.register_script_message("thumbfast-info", function(json)
+    local data = utils.parse_json(json or "")
+    if type(data) == "table" and data.available then
+        local active = not data.disabled
+        if thumbfast_active ~= active then
+            thumbfast_active = active
+            if active then
+                hide()
+                stop_renderer()
+            end
+            reconfigure()
+        end
+    end
+end)
 mp.register_event("shutdown", function()
     stop_renderer()
     for _, entry in pairs(cache) do os.remove(entry.path) end
