@@ -77,9 +77,13 @@
   [PASS] thumbfast move_file uses pcall protection against Windows file lock errors
   [PASS] thumbfast tracks thumb_timestamp and avoids stale image draws
   [PASS] thumbfast forces allow_fast_seek on network streams for rapid scrub
+  [PASS] thumbfast adds --force-seekable=yes for network range seek responsiveness
+  [PASS] thumbfast forwards cookies-file to subprocess if available
+  [PASS] thumbfast handles BTR localhost accelerated streams inside EDL
+  [PASS] thumbfast clears stale overlay on distant scrubbing
 
 ================================================================================
-  CODE LOGIC SUMMARY: Total 48 | Passed: 48 | Failed: 0
+  CODE LOGIC SUMMARY: Total 52 | Passed: 52 | Failed: 0
 ================================================================================
 
 [VISUAL TESTS] Performing In-Engine Visual Screenshots & GUI Execution

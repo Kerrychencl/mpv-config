@@ -470,7 +470,16 @@ end
 
 local function extract_direct_url(fn)
     if not fn or fn == "" then return fn end
+    -- If it is already a direct stream or localhost accelerator stream, preserve as-is
+    if fn:match("^https?://127%.0%.0%.1:%d+/stream") then
+        return fn
+    end
     if fn:match("^edl://") then
+        -- Check for local accelerated stream inside EDL first
+        local btr_match = fn:match("(https?://127%.0%.0%.1:%d+/stream[^\";\r\n]*)")
+        if btr_match then
+            return clean_edl_url(btr_match)
+        end
         local len_str, url_body = fn:match("media_type=video.-;%%(%d+)%%(https?://.+)")
         if len_str and url_body then
             local len = tonumber(len_str)
@@ -534,6 +543,7 @@ local function spawn(time)
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--load-stats-overlay=no", "--load-osd-console=no", "--load-auto-profiles=no",
         "--edition="..(properties["edition"] or "auto"), "--vid="..(vid or "auto"), "--no-sub", "--no-audio",
         "--start="..time, allow_fast_seek and "--hr-seek=no" or "--hr-seek=yes",
+        "--force-seekable=yes",
         "--ytdl-format=worst", "--demuxer-readahead-secs=0",
         properties["demuxer-via-network"] and "--demuxer-max-bytes=4MiB" or "--demuxer-max-bytes=128KiB",
         properties["demuxer-via-network"] and "--stream-buffer-size=512KiB" or "--stream-buffer-size=128KiB",
@@ -592,6 +602,10 @@ local function spawn(time)
         for _, h in ipairs(http_headers) do
             table.insert(args, "--http-header-fields-append=" .. h)
         end
+    end
+
+    if properties["cookies-file"] and properties["cookies-file"] ~= "" then
+        table.insert(args, "--cookies-file=" .. properties["cookies-file"])
     end
 
     local needs_ipc_load = (#path > 4000) or (path:match("^edl://") ~= nil)
@@ -658,15 +672,18 @@ local function check_pending_loadfile()
         local hPipe = winapi.C.CreateFileW(winapi.socket_wc, winapi.GENERIC_WRITE, 0, nil, winapi.OPEN_EXISTING, winapi._createfile_pipe_flags, nil)
         if hPipe ~= winapi.INVALID_HANDLE_VALUE then
             local p = pending_loadfile
-            pending_loadfile = nil
             local target_time = last_seek_time or p.time or 0
             local load_cmd = {
                 command = {"loadfile", p.path, "replace", 0, "start=" .. tostring(target_time)}
             }
             local buf = mp.utils.format_json(load_cmd) .. "\n"
             winapi.C.SetNamedPipeHandleState(hPipe, winapi.PIPE_NOWAIT, nil, nil)
-            winapi.C.WriteFile(hPipe, buf, #buf, winapi._lpNumberOfBytesWritten, nil)
+            local written = winapi.ffi.new("unsigned long[1]")
+            local ok = winapi.C.WriteFile(hPipe, buf, #buf, written, nil)
             winapi.C.CloseHandle(hPipe)
+            if ok and written[0] > 0 then
+                pending_loadfile = nil
+            end
         end
         return
     end
@@ -926,6 +943,11 @@ local function thumb(time, r_x, r_y, script)
         -- to prevent displaying an outdated, stuck image from another scene when scrubbing quickly
         if not thumb_timestamp or math.abs((time or 0) - (thumb_timestamp or 0)) < 3 then
             draw(real_w, real_h, script)
+        else
+            -- If user scrubbed far away, clear the stale overlay so an outdated frame does not remain frozen
+            if not script and not pre_0_30_0 then
+                mp.command_native_async({"overlay-remove", options.overlay_id}, function() end)
+            end
         end
     end
 
@@ -1112,6 +1134,7 @@ mp.observe_property("stream-open-filename", "native", update_property)
 mp.observe_property("http-header-fields", "native", update_property)
 mp.observe_property("user-agent", "native", update_property)
 mp.observe_property("referrer", "native", update_property)
+mp.observe_property("cookies-file", "native", update_property)
 mp.observe_property("macos-app-activation-policy", "native", update_property)
 mp.observe_property("current-vo", "native", update_property)
 mp.observe_property("video-rotate", "native", update_property)
