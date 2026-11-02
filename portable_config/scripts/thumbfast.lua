@@ -171,6 +171,7 @@ local x, y
 local last_x, last_y
 
 local last_seek_time
+local thumb_timestamp
 
 local effective_w, effective_h = options.max_width, options.max_height
 local real_w, real_h
@@ -534,7 +535,10 @@ local function spawn(time)
         "--edition="..(properties["edition"] or "auto"), "--vid="..(vid or "auto"), "--no-sub", "--no-audio",
         "--start="..time, allow_fast_seek and "--hr-seek=no" or "--hr-seek=yes",
         "--ytdl-format=worst", "--demuxer-readahead-secs=0",
-        properties["demuxer-via-network"] and "--demuxer-max-bytes=2MiB" or "--demuxer-max-bytes=128KiB",
+        properties["demuxer-via-network"] and "--demuxer-max-bytes=4MiB" or "--demuxer-max-bytes=128KiB",
+        properties["demuxer-via-network"] and "--stream-buffer-size=512KiB" or "--stream-buffer-size=128KiB",
+        "--network-timeout=10",
+        "--demuxer-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5",
         "--vd-lavc-skiploopfilter=all", "--vd-lavc-software-fallback=1", "--vd-lavc-fast", "--vd-lavc-threads=2", "--hwdec="..(options.hwdec and "auto" or "no"),
         "--vf="..vf_string(filters_all, true),
         "--sws-scaler=fast-bilinear",
@@ -779,10 +783,11 @@ end
 
 local function move_file(from, to)
     if os_name == "windows" then
-        os.remove(to)
+        pcall(function() os.remove(to) end)
     end
     -- move the file because it can get overwritten while overlay-add is reading it, and crash the player
-    os.rename(from, to)
+    local ok, err = pcall(function() return os.rename(from, to) end)
+    return ok and err
 end
 
 local function seek(fast)
@@ -829,7 +834,8 @@ local function check_new_thumb()
     -- location before validity check to make sure everything stays consistant
     -- and valid thumbnails don't get overwritten by invalid ones
     local tmp = options.thumbnail..".tmp"
-    move_file(options.thumbnail, tmp)
+    local moved = move_file(options.thumbnail, tmp)
+    if not moved then return false end
     local finfo = mp.utils.file_info(tmp)
     if not finfo then return false end
     spawn_waiting = false
@@ -837,6 +843,7 @@ local function check_new_thumb()
     if w then -- only accept valid thumbnails
         move_file(tmp, options.thumbnail..".bgra")
 
+        thumb_timestamp = last_seek_time
         real_w, real_h = w, h
         if real_w and (real_w ~= last_real_w or real_h ~= last_real_h) then
             last_real_w, last_real_h = real_w, real_h
@@ -871,6 +878,7 @@ local function clear()
         activity_timer:resume()
     end
     last_seek_time = nil
+    thumb_timestamp = nil
     show_thumbnail = false
     last_x = nil
     last_y = nil
@@ -914,7 +922,11 @@ local function thumb(time, r_x, r_y, script)
     if last_x ~= x or last_y ~= y or not show_thumbnail then
         show_thumbnail = true
         last_x, last_y = x, y
-        draw(real_w, real_h, script)
+        -- Only redraw existing thumbnail if we already have one decoded for close proximity (within 3s)
+        -- to prevent displaying an outdated, stuck image from another scene when scrubbing quickly
+        if not thumb_timestamp or math.abs((time or 0) - (thumb_timestamp or 0)) < 3 then
+            draw(real_w, real_h, script)
+        end
     end
 
     if options.quit_after_inactivity > 0 then
@@ -1050,6 +1062,7 @@ local function file_load()
     last_real_w, last_real_h = nil, nil
     last_tone_mapping = nil
     last_seek_time = nil
+    thumb_timestamp = nil
     if info_timer then
         info_timer:kill()
         info_timer = nil
@@ -1075,7 +1088,8 @@ local function on_duration(prop, val)
     elseif mode == "no" then
         allow_fast_seek = true
     else
-        allow_fast_seek = (val or 30) >= 30
+        -- On network streams (YouTube/Bilibili), fast keyframe seek during scrub is essential for smooth responsiveness
+        allow_fast_seek = properties["demuxer-via-network"] or (val or 30) >= 30
     end
 end
 
