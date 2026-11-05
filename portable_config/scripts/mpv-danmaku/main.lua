@@ -52,7 +52,20 @@ end
 
 local py_path = utils.join_path(directory, "danmaku2ass.py")
 local b2y_py = utils.join_path(directory, "b2y_search.py")
-local cookie_path = "C:\\Users\\Administrator\\AppData\\Local\\Temp\\mpv_active_cookies.txt"
+local temp_dir = os.getenv("TEMP") or utils.join_path(mp.command_native({"expand-path", "~~/"}), "cache")
+local cookie_path = utils.join_path(temp_dir, "mpv_active_cookies.txt")
+
+local function get_python()
+    local mpv_root = mp.command_native({"expand-path", "~~/"})
+    local cand1 = utils.join_path(mpv_root, "../python/python.exe")
+    local i1 = utils.file_info(cand1)
+    if i1 and i1.is_file then return cand1 end
+    local cand2 = utils.join_path(mpv_root, "../python.exe")
+    local i2 = utils.file_info(cand2)
+    if i2 and i2.is_file then return cand2 end
+    return (package.config:sub(1,1) == "\\" and "python" or "python3")
+end
+local py_cmd = get_python()
 
 -- 彈幕狀態變數
 local source_file = nil      -- 原始彈幕來源檔案 (XML 或 ASS)，保持純淨以供隨時重新轉換
@@ -197,7 +210,7 @@ local function build_convert_args(in_p, ass_p)
     local fs = math.floor(50 * s.fontsize_pct)
 
     local args = {
-        'python', '-X', 'utf8', py_path,
+        py_cmd, '-X', 'utf8', py_path,
         '-o', ass_p,
         '-s', '1920x1080',
         '-fs', tostring(fs),
@@ -670,7 +683,7 @@ end
 mp.register_script_message("danmaku-reconvert", reconvert_danmaku)
 
 local function findxml(vid, callback)
-    local find_cmd = { 'python', '-X', 'utf8', '-c', [==[
+    local find_cmd = { py_cmd, '-X', 'utf8', '-c', [==[
 import sys, glob, os
 d = sys.argv[1]
 vid = sys.argv[2] if len(sys.argv) > 2 else ''
@@ -756,7 +769,7 @@ function load_danmaku_by_cid(cid, callback)
     local fs = math.floor(50 * s.fontsize_pct)
 
     local args = {
-        'python', '-X', 'utf8', py_path,
+        py_cmd, '-X', 'utf8', py_path,
         '--cid', safe_cid,
         '--save-xml', cached_xml,
         '-o', target_ass,
@@ -906,7 +919,7 @@ function trigger_b2y(override_bvid, check_clipboard, custom_query)
     mp.osd_message("[B2Y] 正在檢索並匹配 B 站彈幕...", 2.0)
 
     local args = {
-        'python', '-X', 'utf8', b2y_py,
+        py_cmd, '-X', 'utf8', b2y_py,
         '--title', title,
         '--duration', tostring(math.floor(dur)),
         '--work-dir', directory,
@@ -999,7 +1012,7 @@ local function search_candidates_only(keyword)
 
     local dur = mp.get_property_number("duration", 0)
     local args = {
-        'python', '-X', 'utf8', b2y_py,
+        py_cmd, '-X', 'utf8', b2y_py,
         '--title', keyword,
         '--duration', tostring(math.floor(dur)),
         '--work-dir', directory,
@@ -1050,7 +1063,7 @@ pick_external_danmaku = function()
 
     local sanitized_dir = init_arg:gsub('\\+$', ''):gsub('/+$', '')
     local args = {
-        'python', '-X', 'utf8', pick_py,
+        py_cmd, '-X', 'utf8', pick_py,
         '--dir', sanitized_dir,
         '--out', tmp_out
     }

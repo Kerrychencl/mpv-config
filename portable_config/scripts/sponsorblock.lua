@@ -14,6 +14,16 @@ local assdraw = require 'mp.assdraw'
 local config_dir = mp.command_native({"expand-path", "~~/"})
 local helper_py = utils.join_path(config_dir, "sponsorblock_shared/sponsor_unified.py")
 
+local function get_python()
+    local cand1 = utils.join_path(config_dir, "../python/python.exe")
+    local i1 = utils.file_info(cand1)
+    if i1 and i1.is_file then return cand1 end
+    local cand2 = utils.join_path(config_dir, "../python.exe")
+    local i2 = utils.file_info(cand2)
+    if i2 and i2.is_file then return cand2 end
+    return (package.config:sub(1,1) == "\\" and "python" or "python3")
+end
+
 local current_segments = {}
 local last_skip = nil
 local active_video_id = nil
@@ -126,7 +136,7 @@ local function fetch_segments(url, yt_id, bvid)
     if is_fetching then return end
     is_fetching = true
 
-    local args = { 'python', '-X', 'utf8', helper_py }
+    local args = { get_python(), '-X', 'utf8', helper_py }
     if yt_id and yt_id ~= "" then
         table.insert(args, '--yt-id')
         table.insert(args, yt_id)

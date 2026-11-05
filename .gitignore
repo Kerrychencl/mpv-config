@@ -24,3 +24,6 @@ prove-it/*_debug.log
 prove-it/settled_test.log
 *.bgra
 mpv_btr_port*.txt
+
+# Portable Python runtime
+python/
