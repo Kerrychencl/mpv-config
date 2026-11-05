@@ -19,6 +19,17 @@ local mpv_root = mp.command_native({"expand-path", "~~/"})
 local settings_file = utils.join_path(mpv_root, "btr_settings.json")
 local engine_script = utils.join_path(utils.join_path(mpv_root, "scripts"), "btr/btr_engine.py")
 
+local function get_python()
+    local cand1 = utils.join_path(mpv_root, "../python/python.exe")
+    local i1 = utils.file_info(cand1)
+    if i1 and i1.is_file then return cand1 end
+    local cand2 = utils.join_path(mpv_root, "../python.exe")
+    local i2 = utils.file_info(cand2)
+    if i2 and i2.is_file then return cand2 end
+    return (package.config:sub(1,1) == "\\" and "python" or "python3")
+end
+local py_cmd = get_python()
+
 -- 預設節點列表
 local MAINLAND_HOSTS = {
     { id = "upos-sz-mirrorali.bilivideo.com", name = "大陸 阿里雲", desc = "頻寬充足、海外連線最優推薦" },
@@ -105,7 +116,7 @@ local function is_port_alive(port)
         name = "subprocess",
         playback_only = false,
         capture_stdout = true,
-        args = {"python", "-c", string.format([[
+        args = {py_cmd, "-c", string.format([[
 import urllib.request, sys
 try:
     resp = urllib.request.urlopen("http://127.0.0.1:%d/ping", timeout=0.2)
@@ -147,7 +158,7 @@ local function ensure_engine_running()
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
-        args = {"python", engine_script, "--parent-pid", tostring(pid)},
+        args = {py_cmd, engine_script, "--parent-pid", tostring(pid)},
     })
 
     local port_file = get_temp_port_file()
@@ -163,7 +174,7 @@ local function ensure_engine_running()
                 return port
             end
         end
-        mp.command_native({name = "subprocess", args = {"python", "-c", "import time; time.sleep(0.08)"}})
+        mp.command_native({name = "subprocess", args = {py_cmd, "-c", "import time; time.sleep(0.08)"}})
     end
     return nil
 end
@@ -214,7 +225,7 @@ print(json.dumps(results))
         name = "subprocess",
         playback_only = false,
         capture_stdout = true,
-        args = {"python", "-c", py_code},
+        args = {py_cmd, "-c", py_code},
     }, function(success, res)
         runtime.probing = false
         if success and res and res.stdout then

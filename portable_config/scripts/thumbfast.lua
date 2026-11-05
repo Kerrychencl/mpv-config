@@ -1236,7 +1236,17 @@ local function start_online_sprite_fetch()
 
     sprite_fetching = true
 
-    local py_bin = os_name == "windows" and "python" or "python3"
+    local function resolve_python()
+        local mpv_root = mp.command_native({"expand-path", "~~/"})
+        local cand1 = utils.join_path(mpv_root, "../python/python.exe")
+        local i1 = utils.file_info(cand1)
+        if i1 and i1.is_file then return cand1 end
+        local cand2 = utils.join_path(mpv_root, "../python.exe")
+        local i2 = utils.file_info(cand2)
+        if i2 and i2.is_file then return cand2 end
+        return os_name == "windows" and "python" or "python3"
+    end
+    local py_bin = resolve_python()
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
@@ -1386,7 +1396,7 @@ spawn = function(time)
     if properties["cookies-file"] and properties["cookies-file"] ~= "" then
         table.insert(args, "--cookies-file=" .. properties["cookies-file"])
     else
-        local temp_dir = os.getenv("TEMP") or "C:\\Users\\Administrator\\AppData\\Local\\Temp"
+        local temp_dir = os.getenv("TEMP") or utils.join_path(mp.command_native({"expand-path", "~~/"}), "cache")
         local active_cookies = temp_dir .. "\\mpv_active_cookies.txt"
         local f = io.open(active_cookies, "r")
         if f then

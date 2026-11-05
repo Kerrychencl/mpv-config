@@ -9,7 +9,7 @@ local msg = require 'mp.msg'
 
 local mpv_root = mp.command_native({"expand-path", "~~/"})
 local user_cookie_file = utils.join_path(mpv_root, "cookies.txt")
-local temp_dir = os.getenv("TEMP") or "C:\\Users\\Administrator\\AppData\\Local\\Temp"
+local temp_dir = os.getenv("TEMP") or utils.join_path(mpv_root, "cache")
 local active_cookie_file = utils.join_path(temp_dir, "mpv_active_cookies.txt")
 
 local cached_bili_cookie = nil
@@ -109,6 +109,11 @@ local function sync_cookies()
     out:close()
     if #bili_pairs > 0 then
         cached_bili_cookie = table.concat(bili_pairs, "; ")
+    end
+
+    local ytdl_raw = mp.get_property("ytdl-raw-options", "")
+    if not ytdl_raw:find("cookies=") then
+        mp.commandv("change-list", "ytdl-raw-options", "append", "cookies=" .. active_cookie_file)
     end
 end
 

@@ -49,7 +49,8 @@ local prev_builtin_dragging = "yes"
 local mpv_root = mp.command_native({"expand-path", "~~/"})
 local settings_path = utils.join_path(mpv_root, "danmaku_settings.json")
 local filter_file_path = utils.join_path(mpv_root, "danmaku_filters.json")
-local user_downloads_filter = "d:\\Domwloads\\bilibili.block.json"
+local user_home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+local user_downloads_filter = (user_home ~= "" and utils.join_path(user_home, "Downloads\\bilibili.block.json")) or utils.join_path(mpv_root, "bilibili.block.json")
 
 -- 卡片尺寸
 local CW = 350
