@@ -450,7 +450,7 @@ function setsub(custom_msg)
 
     local prev_sid = mp.get_property("sid")
 
-    mp.commandv("sub-add", assfile, "auto")
+    mp.commandv("sub-add", assfile, "cached")
 
     mp.add_timeout(0.1, function()
         local tracks = mp.get_property_native("track-list") or {}
@@ -481,10 +481,19 @@ function setsub(custom_msg)
             mp.set_property("secondary-sub-visibility", s.enabled and "yes" or "no")
 
             if mp.get_property("sid") == danmaku_track_id then
-                if prev_sid and prev_sid ~= "no" and prev_sid ~= danmaku_track_id then
+                local alt_sid = nil
+                for _, t in ipairs(tracks) do
+                    if t.type == "sub" and tostring(t.id) ~= danmaku_track_id then
+                        alt_sid = tostring(t.id)
+                        break
+                    end
+                end
+                if alt_sid then
+                    mp.set_property("sid", alt_sid)
+                elseif prev_sid and prev_sid ~= "no" and prev_sid ~= danmaku_track_id then
                     mp.set_property("sid", prev_sid)
                 else
-                    mp.set_property("sid", "no")
+                    mp.set_property("sid", "auto")
                 end
             end
 
@@ -633,7 +642,7 @@ function reconvert_danmaku()
                 danmaku_track_id = nil
             end
 
-            mp.commandv("sub-add", assfile, "auto")
+            mp.commandv("sub-add", assfile, "cached")
 
             mp.add_timeout(0.08, function()
                 local tracks = mp.get_property_native("track-list") or {}
@@ -660,10 +669,19 @@ function reconvert_danmaku()
                     mp.set_property_native("user-data/danmaku/present", true)
                     mp.set_property_bool("secondary-sub-visibility", cur_sec_vis)
                     if mp.get_property("sid") == danmaku_track_id then
-                        if prev_sid and prev_sid ~= "no" and prev_sid ~= danmaku_track_id then
+                        local alt_sid = nil
+                        for _, t in ipairs(tracks) do
+                            if t.type == "sub" and tostring(t.id) ~= danmaku_track_id then
+                                alt_sid = tostring(t.id)
+                                break
+                            end
+                        end
+                        if alt_sid then
+                            mp.set_property("sid", alt_sid)
+                        elseif prev_sid and prev_sid ~= "no" and prev_sid ~= danmaku_track_id then
                             mp.set_property("sid", prev_sid)
                         else
-                            mp.set_property("sid", "no")
+                            mp.set_property("sid", "auto")
                         end
                     end
                 end
