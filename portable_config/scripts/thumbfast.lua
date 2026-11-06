@@ -63,7 +63,8 @@ local options = {
     exact_seek_delay = 0.1
 }
 
-mp.utils = require "mp.utils"
+local utils = require "mp.utils"
+mp.utils = utils
 mp.options = require "mp.options"
 mp.options.read_options(options, "thumbfast")
 

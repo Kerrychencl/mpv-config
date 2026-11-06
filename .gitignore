@@ -12,6 +12,10 @@ portable_config/sponsorblock_shared/*
 !portable_config/sponsorblock_shared/sponsor_unified.py
 portable_config/file_browser-last_opened_directory
 
+# Danmaku cache files
+*.danmaku.xml
+portable_config/scripts/mpv-danmaku/*.xml
+
 # Temporary files, agent metadata, and python cache
 .agents/
 __pycache__/
