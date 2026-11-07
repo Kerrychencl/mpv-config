@@ -1343,10 +1343,11 @@ local function estimate_text_width(text, style)
 
         local bounds = text_measure_osd:update()
         if bounds and bounds.x1 and bounds.x0 then
-            -- subtract side-bearing padding that libass adds even at bord0
-            local fs = tonumber((style or ""):match("\\fs(%d+%.?%d*)")) or 16
-            local bearing_correction = fs * 0.08 * 2
-            width = math.max(0, (bounds.x1 - bounds.x0) - bearing_correction)
+            -- bounds.x1 is the rightmost extent from pos(0,0). When text has leading glyph
+            -- offset (e.g. CJK bracket '【' where bounds.x0 > 0), rendering at pos(x,y)
+            -- reaches x + bounds.x1. Using (bounds.x1 - bounds.x0) or subtracting
+            -- bearing_correction causes premature right-side text clipping.
+            width = math.ceil(math.max(bounds.x1, bounds.x1 - bounds.x0))
         end
     end
 
@@ -4949,7 +4950,7 @@ local function glass_window_controls()
     if user_opts.show_window_title then
         local left_x = m
         local max_w = math.max(0, (count > 0 and bx or (W - m)) - 12 - left_x)
-        local raw_title = strip_media_ext(mp.get_property("media-title") or mp.get_property("title") or "")
+        local raw_title = strip_media_ext((mp.get_property("media-title") or mp.get_property("title") or ""):gsub("\n", " "))
         local text_w = math.min(max_w - 32, estimate_text_width(raw_title, osc_styles.glass_window_title))
         if raw_title ~= "" and text_w > 0 and max_w > 40 then
             glass_panel("wc_title_panel", left_x, by, text_w + 32, box_h, r, "top")
@@ -4958,7 +4959,7 @@ local function glass_window_controls()
             lo.geometry = {x = left_x + 16, y = cy, an = 4, w = text_w, h = box_h}
             lo.group = "top"
             lo.alpha[3] = 0
-            lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.glass_window_title, left_x + 16, by, left_x + 16 + text_w, by + box_h)
+            lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.glass_window_title, left_x + 16, by, left_x + 16 + text_w + 6, by + box_h)
             state.windowtitle_max_w = text_w
         end
     end
