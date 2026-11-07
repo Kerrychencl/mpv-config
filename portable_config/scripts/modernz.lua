@@ -916,6 +916,31 @@ local function contains(list, item)
     return false
 end
 
+local media_exts = {
+    mp4=true, mkv=true, avi=true, flv=true, webm=true, ts=true,
+    m2ts=true, mts=true, mov=true, wmv=true, rmvb=true, rm=true,
+    m4v=true, mpg=true, mpeg=true, vob=true, ["3gp"]=true, ["3g2"]=true,
+    asf=true, ogv=true, mp3=true, flac=true, wav=true, aac=true,
+    m4a=true, ogg=true, opus=true, ape=true, alac=true, iso=true,
+    f4v=true, m2t=true, dts=true, ac3=true, thd=true, eac3=true,
+    aiff=true, aif=true, wma=true, mka=true, y4m=true
+}
+
+local function strip_media_ext(s)
+    if not s or s == "" then return "" end
+    local clean = s:gsub("%s+$", "")
+    local fn = mp.get_property("filename")
+    local fn_no_ext = mp.get_property("filename/no-ext")
+    if fn and fn_no_ext and fn_no_ext ~= "" and clean == fn then
+        return fn_no_ext
+    end
+    local ext = clean:match("%.([%w]+)$")
+    if ext and media_exts[ext:lower()] then
+        return clean:sub(1, -(#ext + 2))
+    end
+    return s
+end
+
 -- seekbar thumbnails come from thumbfast (preferred) or thumbz (fallback)
 local thumbz = {
     width = 0,
@@ -3561,7 +3586,7 @@ local function play_folder(dir, files, index)
 end
 
 local function strip_ext(name)
-    return (name:gsub("%.[%w]+$", ""))
+    return strip_media_ext(name)
 end
 
 -- Covers: a small still beside each video in the folder and playlist menus. thumbz makes
@@ -3648,6 +3673,8 @@ local function menu_items(kind, arg)
             if not name or name == "" then
                 name = (entry.filename or ""):gsub("[/\\]+$", ""):match("[^/\\]+$") or entry.filename or ""
                 if not name:find("^%a+://") then name = strip_ext(name) end
+            else
+                if not name:find("^%a+://") then name = strip_media_ext(name) end
             end
             -- a playlist of one folder is titled with the folder's name
             if one_dir then
@@ -4922,7 +4949,7 @@ local function glass_window_controls()
     if user_opts.show_window_title then
         local left_x = m
         local max_w = math.max(0, (count > 0 and bx or (W - m)) - 12 - left_x)
-        local raw_title = mp.get_property("media-title") or mp.get_property("title") or ""
+        local raw_title = strip_media_ext(mp.get_property("media-title") or mp.get_property("title") or "")
         local text_w = math.min(max_w - 32, estimate_text_width(raw_title, osc_styles.glass_window_title))
         if raw_title ~= "" and text_w > 0 and max_w > 40 then
             glass_panel("wc_title_panel", left_x, by, text_w + 32, box_h, r, "top")
@@ -6437,7 +6464,7 @@ local function osc_init()
         local c = title_cache[source or ""]
         if c and now - c.t < 0.5 then return c.text end
         local title = mp.command_native({"expand-text", source})
-        title = title:gsub("\n", " ")
+        title = strip_media_ext(title:gsub("\n", " "))
         local text = c and c.raw == title and c.text or (title ~= "" and mp.command_native({"escape-ass", title}) or "mpv")
         title_cache[source or ""] = {t = now, raw = title, text = text}
         return text
