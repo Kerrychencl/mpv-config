@@ -237,6 +237,7 @@ import os
 import re
 import json
 import math
+import time
 import subprocess
 import urllib.request
 import urllib.parse
@@ -270,12 +271,19 @@ def build_opener(cookie_file=None, referer=None):
     return opener
 
 
-def fetch_bytes(opener, url, timeout=8):
+def fetch_bytes(opener, url, timeout=8, retries=2):
     if url.startswith("//"):
         url = "https:" + url
-    req = urllib.request.Request(url)
-    with opener.open(req, timeout=timeout) as resp:
-        return resp.read()
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url)
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception:
+            if attempt < retries:
+                time.sleep(0.2 * (attempt + 1))
+            else:
+                raise
 
 
 def fetch_json(opener, url, timeout=8):
@@ -448,7 +456,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     sheets = {}
     with ThreadPoolExecutor(max_workers=min(8, len(img_urls))) as ex:
-        futs = {ex.submit(fetch_bytes, opener, u, 8): idx for idx, u in enumerate(img_urls)}
+        futs = {ex.submit(fetch_bytes, opener, u, 8, 2): idx for idx, u in enumerate(img_urls)}
         for f in as_completed(futs):
             s_idx = futs[f]
             try:
@@ -466,10 +474,18 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     times = []
     frames = []
+    last_valid_frame = None
+
     for i in range(count):
         s_idx = i // per_sheet
+        t_val = float(indices[i]) if i < len(indices) else float(i * 2)
+
         if s_idx not in sheets:
+            if last_valid_frame is not None:
+                times.append(t_val)
+                frames.append(last_valid_frame)
             continue
+
         sheet_img = sheets[s_idx]
         in_sheet = i % per_sheet
         r_idx = in_sheet // cols
@@ -477,9 +493,13 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
         x0 = c_idx * cell_w
         y0 = r_idx * cell_h
         if x0 + cell_w > sheet_img.width or y0 + cell_h > sheet_img.height:
+            if last_valid_frame is not None:
+                times.append(t_val)
+                frames.append(last_valid_frame)
             continue
-        t_val = float(indices[i]) if i < len(indices) else float(i * 2)
+
         bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+        last_valid_frame = bgra
         times.append(t_val)
         frames.append(bgra)
 
@@ -487,46 +507,56 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
 
 # ==============================================================================
-# 2. YouTube Storyboard Extractor (MPV Cached JSON + Direct Spec + yt-dlp Fallback)
+# 2. YouTube Storyboard Extractor (Optimized Level Selection + Safe Bounds)
 # ==============================================================================
-def parse_ytdl_storyboard_info(info):
-    if not info or not isinstance(info, dict):
+def choose_optimal_youtube_level(levels, target_w=200):
+    candidates = []
+    for idx, lvl in enumerate(levels):
+        parts = lvl.split("#")
+        if len(parts) < 8:
+            continue
+        cell_w = int(parts[0])
+        cell_h = int(parts[1])
+        total_count = int(parts[2])
+        cols = int(parts[3])
+        rows = int(parts[4])
+        interval_ms = int(parts[5])
+        per_sheet = cols * rows
+        if per_sheet <= 0 or total_count <= 0:
+            continue
+        num_sheets = int(math.ceil(total_count / float(per_sheet)))
+        candidates.append({
+            "level_idx": idx,
+            "cell_w": cell_w,
+            "cell_h": cell_h,
+            "total_count": total_count,
+            "cols": cols,
+            "rows": rows,
+            "interval_ms": interval_ms,
+            "name_pat": parts[6],
+            "sigh": parts[7],
+            "num_sheets": num_sheets,
+        })
+    if not candidates:
         return None
-    formats = info.get("formats") or []
-    fmts = [
-        f for f in formats
-        if f.get("fragments") and (
-            (f.get("vcodec") == "none" and f.get("acodec") == "none" and f.get("columns") and f.get("rows"))
-            or str(f.get("format_id", "")).startswith("sb")
-            or f.get("format_note") == "storyboard"
-        )
-    ]
-    if not fmts:
-        return None
-    fmts.sort(key=lambda f: (int(f.get("width") or 0) * int(f.get("height") or 0), len(f.get("fragments") or [])))
-    best_sb = fmts[-1]
-    cols = int(best_sb.get("columns") or 5)
-    rows = int(best_sb.get("rows") or 5)
-    frags = best_sb.get("fragments") or []
-    urls = [fr["url"] for fr in frags if fr.get("url")]
-    if not urls:
-        return None
-    dur = float(info.get("duration") or 0)
-    total_count = len(urls) * cols * rows
-    interval_sec = (dur / float(total_count)) if (dur > 0 and total_count > 0) else 2.0
-    return {
-        "cell_w": int(best_sb.get("width") or 0),
-        "cell_h": int(best_sb.get("height") or 0),
-        "total_count": total_count,
-        "cols": cols,
-        "rows": rows,
-        "interval_sec": interval_sec,
-        "urls": urls,
-        "fragments": frags,
-    }
+
+    # Priority ranking to prevent CDN rate limits / timeouts on long videos:
+    # 1. Best balance: 120 <= cell_w <= 240 and safe sheet count <= 35
+    preferred = [c for c in candidates if 120 <= c["cell_w"] <= 240 and c["num_sheets"] <= 35]
+    if preferred:
+        return preferred[-1]
+
+    # 2. Compact level: 70 <= cell_w < 120 with safe sheet count <= 35
+    compact = [c for c in candidates if 70 <= c["cell_w"] < 120 and c["num_sheets"] <= 35]
+    if compact:
+        return compact[-1]
+
+    # 3. Fallback: minimize excessive sheet count
+    candidates.sort(key=lambda c: (abs(c["num_sheets"] - 20), -c["cell_w"]))
+    return candidates[0]
 
 
-def parse_youtube_storyboard_spec(spec_str, duration=0):
+def parse_youtube_storyboard_spec(spec_str, duration=0, target_w=200):
     if not spec_str or "|" not in spec_str:
         return None
     parts = spec_str.split("|")
@@ -535,28 +565,27 @@ def parse_youtube_storyboard_spec(spec_str, duration=0):
     if not levels:
         return None
 
-    level_idx = len(levels) - 1
-    l_parts = levels[level_idx].split("#")
-    if len(l_parts) < 8:
+    best = choose_optimal_youtube_level(levels, target_w)
+    if not best:
         return None
 
-    cell_w = int(l_parts[0])
-    cell_h = int(l_parts[1])
-    total_count = int(l_parts[2])
-    cols = int(l_parts[3])
-    rows = int(l_parts[4])
-    interval_ms = int(l_parts[5])
-    name_pat = l_parts[6]
-    sigh = l_parts[7]
+    level_idx = best["level_idx"]
+    cell_w = best["cell_w"]
+    cell_h = best["cell_h"]
+    total_count = best["total_count"]
+    cols = best["cols"]
+    rows = best["rows"]
+    interval_ms = best["interval_ms"]
+    name_pat = best["name_pat"]
+    sigh = best["sigh"]
+    num_sheets = best["num_sheets"]
 
-    per_sheet = cols * rows
-    if per_sheet <= 0 or total_count <= 0:
-        return None
-
-    num_sheets = int(math.ceil(total_count / float(per_sheet)))
     interval_sec = (interval_ms / 1000.0) if interval_ms > 0 else (
         (duration / float(total_count)) if duration > 0 else 2.0
     )
+
+    if duration > 0 and interval_sec > 0:
+        total_count = min(total_count, int(math.ceil(duration / interval_sec)))
 
     urls = []
     for m in range(num_sheets):
@@ -578,24 +607,103 @@ def parse_youtube_storyboard_spec(spec_str, duration=0):
     }
 
 
+def parse_ytdl_storyboard_info(info, target_w=200):
+    if not info or not isinstance(info, dict):
+        return None
+    formats = info.get("formats") or []
+    fmts = [
+        f for f in formats
+        if f.get("fragments") and (
+            (f.get("vcodec") == "none" and f.get("acodec") == "none" and f.get("columns") and f.get("rows"))
+            or str(f.get("format_id", "")).startswith("sb")
+            or f.get("format_note") == "storyboard"
+        )
+    ]
+    if not fmts:
+        return None
+
+    candidates = []
+    for f in fmts:
+        w = int(f.get("width") or 0)
+        h = int(f.get("height") or 0)
+        cols = int(f.get("columns") or 5)
+        rows = int(f.get("rows") or 5)
+        frags = f.get("fragments") or []
+        urls = [fr["url"] for fr in frags if fr.get("url")]
+        if not urls:
+            continue
+        candidates.append({
+            "fmt": f,
+            "w": w,
+            "h": h,
+            "cols": cols,
+            "rows": rows,
+            "frags": frags,
+            "urls": urls,
+            "num_sheets": len(urls),
+        })
+    if not candidates:
+        return None
+
+    preferred = [c for c in candidates if 120 <= c["w"] <= 240 and c["num_sheets"] <= 35]
+    if preferred:
+        best_cand = preferred[-1]
+    else:
+        compact = [c for c in candidates if 70 <= c["w"] < 120 and c["num_sheets"] <= 35]
+        if compact:
+            best_cand = compact[-1]
+        else:
+            candidates.sort(key=lambda c: (abs(c["num_sheets"] - 20), -c["w"]))
+            best_cand = candidates[0]
+
+    best_sb = best_cand["fmt"]
+    cols = best_cand["cols"]
+    rows = best_cand["rows"]
+    frags = best_cand["frags"]
+    urls = best_cand["urls"]
+    dur = float(info.get("duration") or 0)
+    per_sheet = cols * rows
+
+    if frags and frags[0].get("duration") and float(frags[0]["duration"]) > 0:
+        interval_sec = float(frags[0]["duration"]) / float(per_sheet)
+    elif dur > 0 and len(urls) > 0:
+        interval_sec = dur / float(len(urls) * per_sheet)
+    else:
+        interval_sec = 2.0
+
+    total_count = int(math.ceil(dur / interval_sec)) if (dur > 0 and interval_sec > 0) else (len(urls) * per_sheet)
+    total_count = min(len(urls) * per_sheet, max(1, total_count))
+
+    return {
+        "cell_w": int(best_sb.get("width") or 0),
+        "cell_h": int(best_sb.get("height") or 0),
+        "total_count": total_count,
+        "cols": cols,
+        "rows": rows,
+        "interval_sec": interval_sec,
+        "urls": urls,
+        "fragments": frags,
+    }
+
+
 def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_bin="yt-dlp", cached_info=None):
     opener = build_opener(cookie_file, referer="https://www.youtube.com/")
     sb_info = None
 
     # Fast Path 0: Use MPV's already-fetched ytdl_hook JSON (0ms overhead!)
     if cached_info:
-        sb_info = parse_ytdl_storyboard_info(cached_info)
+        sb_info = parse_ytdl_storyboard_info(cached_info, target_w)
 
     # Fast Path 1: Fetch watch page directly and extract playerStoryboardSpecRenderer (~0.25s)
     if not sb_info:
         try:
-            html = fetch_bytes(opener, url, timeout=6).decode("utf-8", errors="replace")
+            html = fetch_bytes(opener, url, timeout=6, retries=1).decode("utf-8", errors="replace")
             m_spec = re.search(r'"playerStoryboardSpecRenderer"\s*:\s*\{\s*"spec"\s*:\s*"([^"]+)"', html)
             m_dur = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', html)
             dur = float(m_dur.group(1)) if m_dur else 0.0
             if m_spec:
                 raw_spec = m_spec.group(1).encode("utf-8").decode("unicode_escape")
-                sb_info = parse_youtube_storyboard_spec(raw_spec, dur)
+                sb_info = parse_youtube_storyboard_spec(raw_spec, dur, target_w)
         except Exception:
             pass
 
@@ -610,7 +718,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
             proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, creationflags=creationflags)
             if proc.returncode == 0 and proc.stdout:
                 info = json.loads(proc.stdout.decode("utf-8", errors="replace"))
-                sb_info = parse_ytdl_storyboard_info(info)
+                sb_info = parse_ytdl_storyboard_info(info, target_w)
         except Exception:
             pass
 
@@ -627,7 +735,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
 
     sheets = {}
     with ThreadPoolExecutor(max_workers=min(8, len(urls))) as ex:
-        futs = {ex.submit(fetch_bytes, opener, u, 8): idx for idx, u in enumerate(urls)}
+        futs = {ex.submit(fetch_bytes, opener, u, 8, 2): idx for idx, u in enumerate(urls)}
         for f in as_completed(futs):
             s_idx = futs[f]
             try:
@@ -650,14 +758,22 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
     frames = []
     cur_time = 0.0
     frame_idx = 0
+    last_valid_frame = None
 
     for s_idx in range(len(urls)):
+        frag_dur = float(frags[s_idx]["duration"]) if (frags and s_idx < len(frags) and frags[s_idx].get("duration")) else None
+        cell_dt = (frag_dur / float(per_sheet)) if frag_dur else interval_sec
+
         if s_idx not in sheets:
-            if frags and s_idx < len(frags) and frags[s_idx].get("duration"):
-                cur_time += float(frags[s_idx]["duration"])
-            else:
-                cur_time += per_sheet * interval_sec
-            frame_idx += per_sheet
+            # Sheet failed or timed out: fill with previous frame instead of black hole
+            for _ in range(per_sheet):
+                if frame_idx >= total_count:
+                    break
+                if last_valid_frame is not None:
+                    times.append(cur_time)
+                    frames.append(last_valid_frame)
+                cur_time += cell_dt
+                frame_idx += 1
             continue
 
         sheet_img = sheets[s_idx]
@@ -665,9 +781,6 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
         cell_h = base_cell_h
         if cell_w <= 0 or cell_h <= 0:
             continue
-
-        frag_dur = float(frags[s_idx]["duration"]) if (frags and s_idx < len(frags) and frags[s_idx].get("duration")) else None
-        cell_dt = (frag_dur / float(per_sheet)) if frag_dur else interval_sec
 
         for r_idx in range(rows):
             for c_idx in range(cols):
@@ -677,8 +790,12 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
                 y0 = r_idx * cell_h
                 if x0 + cell_w <= sheet_img.width and y0 + cell_h <= sheet_img.height:
                     bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+                    last_valid_frame = bgra
                     times.append(cur_time)
                     frames.append(bgra)
+                elif last_valid_frame is not None:
+                    times.append(cur_time)
+                    frames.append(last_valid_frame)
                 cur_time += cell_dt
                 frame_idx += 1
 
@@ -711,6 +828,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 ]===]
 
 
@@ -1092,7 +1210,8 @@ local function write_sprite_frame_to_bgra(time)
     end
     local idx = find_sprite_index(sprite_pack.times, time or 0)
     if not idx or not sprite_pack.frames[idx] then
-        return false
+        idx = math.max(1, math.min(#sprite_pack.frames, idx or #sprite_pack.frames))
+        if not sprite_pack.frames[idx] then return false end
     end
     if sprite_pack.last_idx ~= idx or not sprite_pack.bgra_written then
         local tmp_bgra = options.thumbnail .. ".sp.tmp"

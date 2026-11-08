@@ -383,13 +383,16 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         if content_len <= CHUNK_SIZE or is_thumb:
             headers = dict(DEFAULT_HEADERS)
             headers["Range"] = f"bytes={req_start}-{req_end}"
-            req = urllib.request.Request(stream_url, headers=headers)
-            try:
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    while chunk := resp.read(64 * 1024):
-                        self.wfile.write(chunk)
-            except Exception:
-                pass
+            for host in candidate_hosts[:3]:
+                req_url = stream_url.replace(target_host, host) if host != target_host else stream_url
+                req = urllib.request.Request(req_url, headers=headers)
+                try:
+                    with urllib.request.urlopen(req, timeout=6) as resp:
+                        while chunk := resp.read(64 * 1024):
+                            self.wfile.write(chunk)
+                        return
+                except Exception:
+                    continue
             return
 
         # Multi-threaded chunk downloading with bounded sliding prefetch window
