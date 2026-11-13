@@ -326,35 +326,26 @@ def is_blank_tile(cell_img):
     return False
 
 
-def image_cell_to_bgra(sheet_img, box, target_w, target_h):
+def image_cell_to_bgra(sheet_img, box, out_w, out_h):
     cell = sheet_img.crop(box)
     if cell.mode != "RGB":
         cell = cell.convert("RGB")
     cw, ch = cell.size
     if cw <= 0 or ch <= 0:
-        return b"\x00" * (target_w * target_h * 4)
+        return b"\x00" * (out_w * out_h * 4)
 
-    if (cw, ch) != (target_w, target_h):
-        scale = min(target_w / cw, target_h / ch)
-        nw = max(1, int(round(cw * scale)))
-        nh = max(1, int(round(ch * scale)))
+    if (cw, ch) != (out_w, out_h):
         resample = getattr(Image, "Resampling", Image).BILINEAR
-        resized = cell.resize((nw, nh), resample)
-        if (nw, nh) != (target_w, target_h):
-            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
-            canvas.paste(resized, ((target_w - nw) // 2, (target_h - nh) // 2))
-            cell = canvas
-        else:
-            cell = resized
+        cell = cell.resize((out_w, out_h), resample)
 
     r, g, b = cell.split()
-    a = Image.new("L", (target_w, target_h), 255)
+    a = Image.new("L", (out_w, out_h), 255)
     bgra = Image.merge("RGBA", (b, g, r, a))
     return bgra.tobytes()
 
 
-def write_pack(out_prefix, times, frames):
-    if not times or not frames or len(times) != len(frames):
+def write_pack(out_prefix, times, frames, out_w, out_h):
+    if not times or not frames or len(times) != len(frames) or out_w <= 0 or out_h <= 0:
         return False
     tmp_pack = out_prefix + ".pack.tmp"
     tmp_idx = out_prefix + ".idx.tmp"
@@ -366,6 +357,7 @@ def write_pack(out_prefix, times, frames):
             fp.write(fr)
 
     with open(tmp_idx, "w", encoding="utf-8") as fi:
+        fi.write(f"{out_w} {out_h}\n")
         for t in times:
             fi.write(f"{t:.3f}\n")
 
@@ -490,8 +482,8 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     cols = int(data.get("img_x_len") or 10)
     rows = int(data.get("img_y_len") or 10)
-    cell_w = int(data.get("img_x_size") or 160)
-    cell_h = int(data.get("img_y_size") or 90)
+    cell_w = int(data.get("img_x_size") or 0)
+    cell_h = int(data.get("img_y_size") or 0)
     per_sheet = cols * rows
 
     sheets = {}
@@ -507,6 +499,25 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     if not sheets:
         return False
+
+    first_sheet = next(iter(sheets.values()))
+    if cell_w <= 0 or cell_h <= 0:
+        if cols > 0 and rows > 0:
+            cell_w = first_sheet.width // cols
+            cell_h = first_sheet.height // rows
+        if cell_w <= 0:
+            cell_w = 160
+        if cell_h <= 0:
+            cell_h = 90
+
+    # Match Bilibili native seekbar preview size (160x90) exactly:
+    # 480x270 high-res sprite sheets are scaled to 160x90 CSS pixels on Bilibili web player.
+    if cell_w >= 160 and cell_h >= 90:
+        out_w = 160
+        out_h = int(round(160.0 * cell_h / cell_w))
+    else:
+        out_w = cell_w
+        out_h = cell_h
 
     total_possible = len(img_urls) * per_sheet
     count = len(indices) if indices else total_possible
@@ -543,7 +554,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
         cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
         blank = is_blank_tile(cell_raw)
-        bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+        bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), out_w, out_h)
         last_valid_frame = bgra
         times.append(t_val)
         frames.append(bgra)
@@ -567,7 +578,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
         if coverage < 0.70 and (video_dur - max_time) > 20.0:
             return False
 
-    return write_pack(out_prefix, times, frames)
+    return write_pack(out_prefix, times, frames, out_w, out_h)
 
 
 # ==============================================================================
@@ -823,6 +834,13 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
         base_cell_w = sb_info.get("cell_w") or 160
         base_cell_h = sb_info.get("cell_h") or 90
 
+    if base_cell_w >= 160 and base_cell_h >= 90:
+        out_w = 160
+        out_h = int(round(160.0 * base_cell_h / base_cell_w))
+    else:
+        out_w = base_cell_w
+        out_h = base_cell_h
+
     times = []
     frames = []
     is_blank_list = []
@@ -861,7 +879,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
                 if x0 + cell_w <= sheet_img.width and y0 + cell_h <= sheet_img.height:
                     cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
                     blank = is_blank_tile(cell_raw)
-                    bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+                    bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), out_w, out_h)
                     last_valid_frame = bgra
                     times.append(cur_time)
                     frames.append(bgra)
@@ -888,7 +906,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
         if coverage < 0.70 and (video_dur - max_time) > 20.0:
             return False
 
-    return write_pack(out_prefix, times, frames)
+    return write_pack(out_prefix, times, frames, out_w, out_h)
 
 
 def main():
@@ -918,7 +936,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 ]===]
 
 
@@ -1108,7 +1125,11 @@ end
 local function calc_dimensions()
     local width = properties["video-out-params"] and properties["video-out-params"]["dw"]
     local height = properties["video-out-params"] and properties["video-out-params"]["dh"]
-    if not width or not height then return end
+    if not width or not height then
+        width = properties["video-params"] and (properties["video-params"]["dw"] or properties["video-params"]["w"])
+        height = properties["video-params"] and (properties["video-params"]["dh"] or properties["video-params"]["h"])
+    end
+    if not width or not height or width <= 0 or height <= 0 then return end
 
     local scale = properties["display-hidpi-scale"] or 1
 
@@ -1120,7 +1141,8 @@ local function calc_dimensions()
         effective_w = math.floor(width / height * effective_h + 0.5)
     end
 
-    local v_par = properties["video-out-params"] and properties["video-out-params"]["par"] or 1
+    local v_par = properties["video-out-params"] and properties["video-out-params"]["par"]
+        or (properties["video-params"] and properties["video-params"]["par"]) or 1
     if v_par == 1 then
         par = ":force_original_aspect_ratio=decrease"
     else
@@ -1148,6 +1170,11 @@ local function info(w, h)
     elseif has_vid == 0 or (rotate == nil and not disabled) then
         info_timer = mp.add_timeout(0.05, function() info(w, h) end)
     end
+
+    pcall(function()
+        mp.set_property_native("user-data/thumbfast/width", w)
+        mp.set_property_native("user-data/thumbfast/height", h)
+    end)
 
     local json, err = mp.utils.format_json({width=w * options.scale_factor, height=h * options.scale_factor, scale_factor=options.scale_factor, disabled=disabled, available=true, socket=options.socket, thumbnail=options.thumbnail, overlay_id=options.overlay_id})
     if pre_0_30_0 then
@@ -1337,7 +1364,7 @@ local function write_sprite_frame_to_bgra(time)
     return true
 end
 
-local function load_sprite_pack(prefix, w, h)
+local function load_sprite_pack(prefix, fallback_w, fallback_h)
     local idx_path = prefix .. ".idx"
     local pack_path = prefix .. ".pack"
     local fi = io.open(idx_path, "r")
@@ -1347,13 +1374,28 @@ local function load_sprite_pack(prefix, w, h)
         if fp then fp:close() end
         return false
     end
+    local pack_w, pack_h = fallback_w, fallback_h
     local times = {}
+    local first_line = true
     for line in fi:lines() do
-        local t = tonumber(line)
-        if t then times[#times + 1] = t end
+        if first_line then
+            first_line = false
+            local pw, ph = line:match("^%s*(%d+)%s+(%d+)%s*$")
+            if pw and ph then
+                pack_w = tonumber(pw)
+                pack_h = tonumber(ph)
+            else
+                local t = tonumber(line:match("^%s*([%d%.]+)%s*$"))
+                if t then times[#times + 1] = t end
+            end
+        else
+            local t = tonumber(line:match("^%s*([%d%.]+)%s*$"))
+            if t then times[#times + 1] = t end
+        end
     end
     fi:close()
 
+    local w, h = pack_w, pack_h
     local frame_bytes = w * h * 4
     local frames = {}
     if frame_bytes > 0 then
@@ -1370,6 +1412,11 @@ local function load_sprite_pack(prefix, w, h)
     end)
 
     if #frames == 0 then return false end
+    if #times > #frames then
+        for i = #times, #frames + 1, -1 do
+            times[i] = nil
+        end
+    end
     sprite_pack = {
         w = w,
         h = h,
@@ -2037,13 +2084,17 @@ local function thumb(time, r_x, r_y, script)
 end
 
 local function watch_changes()
-    if not dirty or not properties["video-out-params"] then return end
+    if not dirty or (not properties["video-out-params"] and not properties["video-params"]) then return end
     dirty = false
 
     local old_w = effective_w
     local old_h = effective_h
 
     calc_dimensions()
+    local page_url = get_online_page_url()
+    if page_url and (page_url:lower():find("bilibili%.com") or page_url:lower():find("b23%.tv")) then
+        effective_w, effective_h = 160, 90
+    end
 
     local vf_reset = vf_string(filters_reset)
     local rotate = properties["video-rotate"] or 0
@@ -2056,18 +2107,24 @@ local function watch_changes()
 
     if resized then
         last_rotate = rotate
-        info(effective_w, effective_h)
+        if sprite_pack then
+            info(sprite_pack.w, sprite_pack.h)
+        else
+            info(effective_w, effective_h)
+        end
     elseif last_has_vid ~= has_vid and has_vid ~= 0 then
-        info(effective_w, effective_h)
+        if sprite_pack then
+            info(sprite_pack.w, sprite_pack.h)
+        else
+            info(effective_w, effective_h)
+        end
     end
 
     -- Start online sprite-sheet extraction for Bilibili / YouTube as soon as dimensions are known
-    if not disabled and get_online_page_url() then
-        if resized and sprite_pack then
-            sprite_pack = nil
-            sprite_fetching = false
+    if not disabled and page_url then
+        if not sprite_pack and not sprite_fetching then
+            start_online_sprite_fetch()
         end
-        start_online_sprite_fetch()
     end
 
     if spawned then
@@ -2180,8 +2237,12 @@ local function file_load()
     end
 
     calc_dimensions()
+    local page_url = get_online_page_url()
+    if page_url and (page_url:lower():find("bilibili%.com") or page_url:lower():find("b23%.tv")) then
+        effective_w, effective_h = 160, 90
+    end
     info(effective_w, effective_h)
-    if not disabled and get_online_page_url() then
+    if not disabled and page_url then
         start_online_sprite_fetch()
     end
 end

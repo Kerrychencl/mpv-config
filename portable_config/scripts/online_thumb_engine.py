@@ -101,35 +101,26 @@ def is_blank_tile(cell_img):
     return False
 
 
-def image_cell_to_bgra(sheet_img, box, target_w, target_h):
+def image_cell_to_bgra(sheet_img, box, out_w, out_h):
     cell = sheet_img.crop(box)
     if cell.mode != "RGB":
         cell = cell.convert("RGB")
     cw, ch = cell.size
     if cw <= 0 or ch <= 0:
-        return b"\x00" * (target_w * target_h * 4)
+        return b"\x00" * (out_w * out_h * 4)
 
-    if (cw, ch) != (target_w, target_h):
-        scale = min(target_w / cw, target_h / ch)
-        nw = max(1, int(round(cw * scale)))
-        nh = max(1, int(round(ch * scale)))
+    if (cw, ch) != (out_w, out_h):
         resample = getattr(Image, "Resampling", Image).BILINEAR
-        resized = cell.resize((nw, nh), resample)
-        if (nw, nh) != (target_w, target_h):
-            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
-            canvas.paste(resized, ((target_w - nw) // 2, (target_h - nh) // 2))
-            cell = canvas
-        else:
-            cell = resized
+        cell = cell.resize((out_w, out_h), resample)
 
     r, g, b = cell.split()
-    a = Image.new("L", (target_w, target_h), 255)
+    a = Image.new("L", (out_w, out_h), 255)
     bgra = Image.merge("RGBA", (b, g, r, a))
     return bgra.tobytes()
 
 
-def write_pack(out_prefix, times, frames):
-    if not times or not frames or len(times) != len(frames):
+def write_pack(out_prefix, times, frames, out_w, out_h):
+    if not times or not frames or len(times) != len(frames) or out_w <= 0 or out_h <= 0:
         return False
     tmp_pack = out_prefix + ".pack.tmp"
     tmp_idx = out_prefix + ".idx.tmp"
@@ -141,6 +132,7 @@ def write_pack(out_prefix, times, frames):
             fp.write(fr)
 
     with open(tmp_idx, "w", encoding="utf-8") as fi:
+        fi.write(f"{out_w} {out_h}\n")
         for t in times:
             fi.write(f"{t:.3f}\n")
 
@@ -265,8 +257,8 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     cols = int(data.get("img_x_len") or 10)
     rows = int(data.get("img_y_len") or 10)
-    cell_w = int(data.get("img_x_size") or 160)
-    cell_h = int(data.get("img_y_size") or 90)
+    cell_w = int(data.get("img_x_size") or 0)
+    cell_h = int(data.get("img_y_size") or 0)
     per_sheet = cols * rows
 
     sheets = {}
@@ -282,6 +274,25 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     if not sheets:
         return False
+
+    first_sheet = next(iter(sheets.values()))
+    if cell_w <= 0 or cell_h <= 0:
+        if cols > 0 and rows > 0:
+            cell_w = first_sheet.width // cols
+            cell_h = first_sheet.height // rows
+        if cell_w <= 0:
+            cell_w = 160
+        if cell_h <= 0:
+            cell_h = 90
+
+    # Match Bilibili native seekbar preview size (160x90) exactly:
+    # 480x270 high-res sprite sheets are scaled to 160x90 CSS pixels on Bilibili web player.
+    if cell_w >= 160 and cell_h >= 90:
+        out_w = 160
+        out_h = int(round(160.0 * cell_h / cell_w))
+    else:
+        out_w = cell_w
+        out_h = cell_h
 
     total_possible = len(img_urls) * per_sheet
     count = len(indices) if indices else total_possible
@@ -318,7 +329,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
         cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
         blank = is_blank_tile(cell_raw)
-        bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+        bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), out_w, out_h)
         last_valid_frame = bgra
         times.append(t_val)
         frames.append(bgra)
@@ -342,7 +353,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
         if coverage < 0.70 and (video_dur - max_time) > 20.0:
             return False
 
-    return write_pack(out_prefix, times, frames)
+    return write_pack(out_prefix, times, frames, out_w, out_h)
 
 
 # ==============================================================================
@@ -598,6 +609,13 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
         base_cell_w = sb_info.get("cell_w") or 160
         base_cell_h = sb_info.get("cell_h") or 90
 
+    if base_cell_w >= 160 and base_cell_h >= 90:
+        out_w = 160
+        out_h = int(round(160.0 * base_cell_h / base_cell_w))
+    else:
+        out_w = base_cell_w
+        out_h = base_cell_h
+
     times = []
     frames = []
     is_blank_list = []
@@ -636,7 +654,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
                 if x0 + cell_w <= sheet_img.width and y0 + cell_h <= sheet_img.height:
                     cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
                     blank = is_blank_tile(cell_raw)
-                    bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
+                    bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), out_w, out_h)
                     last_valid_frame = bgra
                     times.append(cur_time)
                     frames.append(bgra)
@@ -663,7 +681,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
         if coverage < 0.70 and (video_dur - max_time) > 20.0:
             return False
 
-    return write_pack(out_prefix, times, frames)
+    return write_pack(out_prefix, times, frames, out_w, out_h)
 
 
 def main():
