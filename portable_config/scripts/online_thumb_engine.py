@@ -13,6 +13,7 @@ import re
 import json
 import math
 import time
+import struct
 import subprocess
 import urllib.request
 import urllib.parse
@@ -21,9 +22,10 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageStat
 except ImportError:
     Image = None
+    ImageStat = None
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -79,6 +81,24 @@ def load_cached_ytdl_json(ytdl_json_file):
         return data
     except Exception:
         return None
+
+
+def is_blank_tile(cell_img):
+    if not cell_img:
+        return True
+    try:
+        extrema = cell_img.getextrema()
+        if not extrema:
+            return True
+        if max(e[1] for e in extrema) < 10:
+            return True
+        if ImageStat:
+            stat = ImageStat.Stat(cell_img)
+            if sum(stat.mean) / len(stat.mean) < 1.0:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def image_cell_to_bgra(sheet_img, box, target_w, target_h):
@@ -140,10 +160,13 @@ def write_pack(out_prefix, times, frames):
 # ==============================================================================
 # 1. Bilibili Videoshot Extractor
 # ==============================================================================
-def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cached_info=None):
+def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cached_info=None, duration=0.0):
     opener = build_opener(cookie_file, referer="https://www.bilibili.com/")
 
+    video_dur = float(duration or 0.0)
     if cached_info and isinstance(cached_info, dict):
+        if video_dur <= 0:
+            video_dur = float(cached_info.get("duration") or 0.0)
         if cached_info.get("webpage_url") and "bilibili.com" in str(cached_info.get("webpage_url")):
             url = str(cached_info["webpage_url"])
 
@@ -182,6 +205,8 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
                 view_data = fetch_json(opener, f"https://api.bilibili.com/x/web-interface/view?{q}")
                 if view_data.get("code") == 0 and view_data.get("data"):
                     vdata = view_data["data"]
+                    if video_dur <= 0:
+                        video_dur = float(vdata.get("duration") or 0.0)
                     bvid = vdata.get("bvid") or bvid
                     aid = vdata.get("aid") or aid
                     cid = vdata.get("cid") or cid
@@ -197,6 +222,8 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
                             bvid = ep.get("bvid")
                             aid = ep.get("aid")
                             cid = ep.get("cid")
+                            if video_dur <= 0:
+                                video_dur = float(ep.get("duration") or 0.0)
                             break
         except Exception:
             pass
@@ -220,6 +247,19 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
     data = vs_json["data"]
     img_urls = data.get("image") or []
     indices = data.get("index") or []
+
+    # Fallback: unpack pvdata binary (.bin) if index is empty
+    if not indices and data.get("pvdata"):
+        try:
+            pv_url = data["pvdata"]
+            if pv_url.startswith("//"):
+                pv_url = "https:" + pv_url
+            pv_bytes = fetch_bytes(opener, pv_url, timeout=6)
+            if pv_bytes and len(pv_bytes) >= 2:
+                indices = list(struct.unpack(f">{len(pv_bytes)//2}H", pv_bytes))
+        except Exception:
+            pass
+
     if not img_urls:
         return False
 
@@ -249,6 +289,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
 
     times = []
     frames = []
+    is_blank_list = []
     last_valid_frame = None
 
     for i in range(count):
@@ -259,6 +300,7 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
             if last_valid_frame is not None:
                 times.append(t_val)
                 frames.append(last_valid_frame)
+                is_blank_list.append(False)
             continue
 
         sheet_img = sheets[s_idx]
@@ -271,12 +313,34 @@ def extract_bilibili(url, target_w, target_h, out_prefix, cookie_file=None, cach
             if last_valid_frame is not None:
                 times.append(t_val)
                 frames.append(last_valid_frame)
+                is_blank_list.append(False)
             continue
 
+        cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+        blank = is_blank_tile(cell_raw)
         bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
         last_valid_frame = bgra
         times.append(t_val)
         frames.append(bgra)
+        is_blank_list.append(blank)
+
+    # Prune trailing unrendered blank/black tiles
+    while frames and is_blank_list and is_blank_list[-1]:
+        frames.pop()
+        times.pop()
+        is_blank_list.pop()
+
+    if not frames:
+        return False
+
+    # Duration coverage validation:
+    # If the video is longer than 15s, but the sprite sheet only covers less than 70%
+    # (and is missing more than 20 seconds), reject the incomplete pack so mpv slave can decode reliably.
+    if video_dur > 15.0 and times:
+        max_time = times[-1]
+        coverage = max_time / video_dur
+        if coverage < 0.70 and (video_dur - max_time) > 20.0:
+            return False
 
     return write_pack(out_prefix, times, frames)
 
@@ -461,12 +525,14 @@ def parse_ytdl_storyboard_info(info, target_w=200):
     }
 
 
-def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_bin="yt-dlp", cached_info=None):
+def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_bin="yt-dlp", cached_info=None, duration=0.0):
     opener = build_opener(cookie_file, referer="https://www.youtube.com/")
     sb_info = None
 
-    # Fast Path 0: Use MPV's already-fetched ytdl_hook JSON (0ms overhead!)
-    if cached_info:
+    video_dur = float(duration or 0.0)
+    if cached_info and isinstance(cached_info, dict):
+        if video_dur <= 0:
+            video_dur = float(cached_info.get("duration") or 0.0)
         sb_info = parse_ytdl_storyboard_info(cached_info, target_w)
 
     # Fast Path 1: Fetch watch page directly and extract playerStoryboardSpecRenderer (~0.25s)
@@ -475,7 +541,9 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
             html = fetch_bytes(opener, url, timeout=6, retries=1).decode("utf-8", errors="replace")
             m_spec = re.search(r'"playerStoryboardSpecRenderer"\s*:\s*\{\s*"spec"\s*:\s*"([^"]+)"', html)
             m_dur = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', html)
-            dur = float(m_dur.group(1)) if m_dur else 0.0
+            dur = float(m_dur.group(1)) if m_dur else video_dur
+            if dur > 0 and video_dur <= 0:
+                video_dur = dur
             if m_spec:
                 raw_spec = m_spec.group(1).encode("utf-8").decode("unicode_escape")
                 sb_info = parse_youtube_storyboard_spec(raw_spec, dur, target_w)
@@ -493,6 +561,8 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
             proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, creationflags=creationflags)
             if proc.returncode == 0 and proc.stdout:
                 info = json.loads(proc.stdout.decode("utf-8", errors="replace"))
+                if video_dur <= 0:
+                    video_dur = float(info.get("duration") or 0.0)
                 sb_info = parse_ytdl_storyboard_info(info, target_w)
         except Exception:
             pass
@@ -506,7 +576,6 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
     per_sheet = cols * rows
     total_count = sb_info["total_count"]
     interval_sec = sb_info["interval_sec"]
-    frags = sb_info.get("fragments")
 
     sheets = {}
     with ThreadPoolExecutor(max_workers=min(8, len(urls))) as ex:
@@ -531,13 +600,13 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
 
     times = []
     frames = []
+    is_blank_list = []
     cur_time = 0.0
     frame_idx = 0
     last_valid_frame = None
 
     for s_idx in range(len(urls)):
-        frag_dur = float(frags[s_idx]["duration"]) if (frags and s_idx < len(frags) and frags[s_idx].get("duration")) else None
-        cell_dt = (frag_dur / float(per_sheet)) if frag_dur else interval_sec
+        cell_dt = interval_sec
 
         if s_idx not in sheets:
             # Sheet failed or timed out: fill with previous frame instead of black hole
@@ -547,6 +616,7 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
                 if last_valid_frame is not None:
                     times.append(cur_time)
                     frames.append(last_valid_frame)
+                    is_blank_list.append(False)
                 cur_time += cell_dt
                 frame_idx += 1
             continue
@@ -564,15 +634,34 @@ def extract_youtube(url, target_w, target_h, out_prefix, cookie_file=None, ytdl_
                 x0 = c_idx * cell_w
                 y0 = r_idx * cell_h
                 if x0 + cell_w <= sheet_img.width and y0 + cell_h <= sheet_img.height:
+                    cell_raw = sheet_img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+                    blank = is_blank_tile(cell_raw)
                     bgra = image_cell_to_bgra(sheet_img, (x0, y0, x0 + cell_w, y0 + cell_h), target_w, target_h)
                     last_valid_frame = bgra
                     times.append(cur_time)
                     frames.append(bgra)
+                    is_blank_list.append(blank)
                 elif last_valid_frame is not None:
                     times.append(cur_time)
                     frames.append(last_valid_frame)
+                    is_blank_list.append(False)
                 cur_time += cell_dt
                 frame_idx += 1
+
+    # Prune trailing unrendered blank/black tiles
+    while frames and is_blank_list and is_blank_list[-1]:
+        frames.pop()
+        times.pop()
+        is_blank_list.pop()
+
+    if not frames:
+        return False
+
+    if video_dur > 15.0 and times:
+        max_time = times[-1]
+        coverage = max_time / video_dur
+        if coverage < 0.70 and (video_dur - max_time) > 20.0:
+            return False
 
     return write_pack(out_prefix, times, frames)
 
@@ -588,15 +677,16 @@ def main():
     cookie_file = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
     ytdl_bin = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else "yt-dlp"
     ytdl_json_file = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None
+    duration = float(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] else 0.0
 
     cached_info = load_cached_ytdl_json(ytdl_json_file)
 
     lower_url = url.lower()
     ok = False
     if "bilibili.com" in lower_url or "b23.tv" in lower_url:
-        ok = extract_bilibili(url, target_w, target_h, out_prefix, cookie_file, cached_info)
+        ok = extract_bilibili(url, target_w, target_h, out_prefix, cookie_file, cached_info, duration)
     elif "youtube.com" in lower_url or "youtu.be" in lower_url:
-        ok = extract_youtube(url, target_w, target_h, out_prefix, cookie_file, ytdl_bin, cached_info)
+        ok = extract_youtube(url, target_w, target_h, out_prefix, cookie_file, ytdl_bin, cached_info, duration)
 
     sys.exit(0 if ok else 2)
 
