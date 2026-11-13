@@ -378,13 +378,21 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
 
         CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
 
+        # Fallback host list
+        candidate_hosts = [target_host]
+        if target_host in OVERSEAS_HOSTS:
+            candidate_hosts += [h for h in OVERSEAS_HOSTS if h != target_host]
+            candidate_hosts += MAINLAND_HOSTS[:2]
+        else:
+            candidate_hosts += [h for h in MAINLAND_HOSTS if h != target_host]
+
         # For small requests or thumbnailer seeks (thumb=1 / threads=1), bypass thread pool
         # so seekbar scrubbing never spawns 32 threads or prefetches 64MB per keyframe seek.
         if content_len <= CHUNK_SIZE or is_thumb:
             headers = dict(DEFAULT_HEADERS)
             headers["Range"] = f"bytes={req_start}-{req_end}"
             for host in candidate_hosts[:3]:
-                req_url = stream_url.replace(target_host, host) if host != target_host else stream_url
+                req_url = swap_node(stream_url, host)
                 req = urllib.request.Request(req_url, headers=headers)
                 try:
                     with urllib.request.urlopen(req, timeout=6) as resp:
@@ -404,14 +412,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             chunks.append((idx, cur, chunk_end))
             cur = chunk_end + 1
             idx += 1
-
-        # Fallback host list
-        candidate_hosts = [target_host]
-        if target_host in OVERSEAS_HOSTS:
-            candidate_hosts += [h for h in OVERSEAS_HOSTS if h != target_host]
-            candidate_hosts += MAINLAND_HOSTS[:2]
-        else:
-            candidate_hosts += [h for h in MAINLAND_HOSTS if h != target_host]
 
         # Buffer and queue
         downloaded = {}
