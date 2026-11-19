@@ -43,13 +43,20 @@ local OVERSEAS_HOSTS = {
     { id = "upos-hz-mirrorakam.akamaized.net",  name = "海外 Akamai", desc = "海外 Akamai 節點" },
 }
 
+local LIVE_HOSTS = {
+    "d1--cn-gotcha01.bilivideo.com",
+    "d1--cn-gotcha04.bilivideo.com",
+    "d1--cn-gotcha05.bilivideo.com",
+    "d1--cn-gotcha07.bilivideo.com",
+}
+
 -- 預設設定
 local settings = {
     enabled = true,
     cdn_mode = "mainland", -- "mainland", "auto", "overseas", "original", or specific host
     preferred_host = "upos-sz-mirrorali.bilivideo.com",
     engine_mode = "direct", -- "direct" (兼容模式 / 極速直連) or "ripper" (全接管 / 多線程併發)
-    threads = 16,
+    threads = 32,
     auto_threads = true,
     live_acceleration = true,
     osd_notify = true,
@@ -97,6 +104,8 @@ local runtime = {
     engine_port = 0,
     probe_results = {},
     probing = false,
+    original_stream_path = nil,
+    live_host_idx = 1,
 }
 
 -- 尋找或啟動 btr_engine
@@ -110,25 +119,9 @@ local function get_temp_port_file()
     end
 end
 
-local function is_port_alive(port)
-    if not port or port <= 0 then return false end
-    local res = mp.command_native({
-        name = "subprocess",
-        playback_only = false,
-        capture_stdout = true,
-        args = {py_cmd, "-c", string.format([[
-import urllib.request, sys
-try:
-    resp = urllib.request.urlopen("http://127.0.0.1:%d/ping", timeout=0.2)
-    sys.exit(0 if resp.read() == b"OK" else 1)
-except Exception:
-    sys.exit(1)
-]], port)}
-    })
-    return res and res.status == 0
-end
+local engine_timer = nil
 
-local function get_active_engine_port()
+local function check_port_file()
     local port_file = get_temp_port_file()
     local f = io.open(port_file, "r")
     if f then
@@ -136,46 +129,65 @@ local function get_active_engine_port()
         f:close()
         local port = tonumber(p_str and p_str:match("%d+"))
         if port and port > 0 then
-            if is_port_alive(port) then
-                return port
-            else
-                pcall(function() os.remove(port_file) end)
-            end
+            runtime.engine_port = port
+            return port
         end
     end
     return nil
 end
 
-local function ensure_engine_running()
-    local port = get_active_engine_port()
-    if port then
-        runtime.engine_port = port
-        return port
+local function launch_engine_async()
+    if runtime.engine_port and runtime.engine_port > 0 then
+        return runtime.engine_port
+    end
+    local existing_port = check_port_file()
+    if existing_port then
+        return existing_port
     end
 
     local pid = utils.getpid and utils.getpid() or 0
-    mp.msg.info("[BTR] 正在啟動後台多線程加速引擎: " .. engine_script)
+    mp.msg.info("[BTR] 正在異步預加載後台多線程加速引擎: " .. engine_script)
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
         args = {py_cmd, engine_script, "--parent-pid", tostring(pid)},
     })
 
-    local port_file = get_temp_port_file()
-    for _ = 1, 20 do
-        local f = io.open(port_file, "r")
-        if f then
-            local p_str = f:read("*all")
-            f:close()
-            port = tonumber(p_str and p_str:match("%d+"))
-            if port and port > 0 then
-                runtime.engine_port = port
-                mp.msg.info("[BTR] 後台加速引擎已在連接埠 " .. port .. " 就緒")
-                return port
+    if engine_timer then
+        engine_timer:kill()
+        engine_timer = nil
+    end
+
+    local attempts = 0
+    engine_timer = mp.add_periodic_timer(0.05, function()
+        attempts = attempts + 1
+        local port = check_port_file()
+        if port then
+            mp.msg.info("[BTR] 後台加速引擎已在連接埠 " .. port .. " 就緒")
+            if engine_timer then
+                engine_timer:kill()
+                engine_timer = nil
+            end
+        elseif attempts >= 60 then
+            if engine_timer then
+                engine_timer:kill()
+                engine_timer = nil
             end
         end
-        mp.command_native({name = "subprocess", args = {py_cmd, "-c", "import time; time.sleep(0.08)"}})
+    end)
+    return nil
+end
+
+local function ensure_engine_running()
+    if runtime.engine_port and runtime.engine_port > 0 then
+        return runtime.engine_port
     end
+    local port = check_port_file()
+    if port then
+        runtime.engine_port = port
+        return port
+    end
+    launch_engine_async()
     return nil
 end
 
@@ -332,7 +344,7 @@ local function rewrite_stream_filename(stream_path)
     -- 處理 EDL 串流 (包含 VOD 多音軌/視軌分離或 Live 直播)
     if stream_path:find("^edl://") then
         local is_live_stream = false
-        local live_cdn = "d1--cn-gotcha01.bilivideo.com"
+        local live_cdn = LIVE_HOSTS[runtime.live_host_idx or 1] or LIVE_HOSTS[1]
 
         if engine_mode == "ripper" then
             port = ensure_engine_running()
@@ -383,7 +395,7 @@ local function rewrite_stream_filename(stream_path)
                 local new_url = ""
                 if engine_mode == "ripper" and port and port > 0 then
                     new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d",
-                        port, url_encode(raw_url), target_host, settings.threads or 16)
+                        port, url_encode(raw_url), target_host, settings.threads or 32)
                 else
                     new_url = raw_url:gsub("://[^/]+", "://" .. target_host, 1)
                 end
@@ -432,7 +444,7 @@ local function rewrite_stream_filename(stream_path)
 
         local is_mcdn = raw_url:find("mcdn%.") or raw_url:find("[?&]os=mcdn") or raw_url:find("/v1/resource/")
         if settings.live_acceleration and is_mcdn then
-            local live_cdn = "d1--cn-gotcha01.bilivideo.com"
+            local live_cdn = LIVE_HOSTS[runtime.live_host_idx or 1] or LIVE_HOSTS[1]
             local clean_url = raw_url:gsub("://[^/]+", "://" .. live_cdn, 1)
             clean_url = clean_url:gsub("[?&]os=mcdn", ""):gsub("[?&]p2p_type=%d+", ""):gsub("[?&]backup_url=[^&]+", "")
 
@@ -467,7 +479,7 @@ local function rewrite_stream_filename(stream_path)
         local new_url = ""
         if engine_mode == "ripper" and port and port > 0 then
             new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d",
-                port, url_encode(raw_url), target_host, settings.threads or 16)
+                port, url_encode(raw_url), target_host, settings.threads or 32)
         else
             new_url = raw_url:gsub("://[^/]+", "://" .. target_host, 1)
         end
@@ -492,6 +504,8 @@ mp.register_event("start-file", function()
     runtime.original_host = ""
     runtime.target_host = ""
     runtime.mode_used = ""
+    runtime.original_stream_path = nil
+    runtime.live_host_idx = 1
     if settings.cdn_mode == "auto" and not next(runtime.probe_results) and not runtime.probing then
         probe_all_nodes()
     end
@@ -507,16 +521,35 @@ local function handle_btr_load(is_fail)
             if runtime.probe_results[runtime.target_host] then
                 runtime.probe_results[runtime.target_host].status = "failed"
             end
-            mp.msg.warn(string.format("[BTR] 目標節點 [%s] 載入失敗，自動降級切換回原生節點 [%s]",
-                runtime.target_host, runtime.original_host ~= "" and runtime.original_host or "預設"))
+            mp.msg.warn(string.format("[BTR] 目標節點 [%s] 載入失敗", runtime.target_host))
         end
-        if runtime.original_host and runtime.original_host ~= "" and runtime.target_host and runtime.target_host ~= "" then
-            local fallback_path = path:gsub("://" .. runtime.target_host, "://" .. runtime.original_host)
-            mp.set_property("stream-open-filename", fallback_path)
+
+        -- 若為直播且還有備用官方直播節點可切換
+        if runtime.is_live and runtime.live_host_idx and runtime.live_host_idx < #LIVE_HOSTS then
+            runtime.live_host_idx = runtime.live_host_idx + 1
+            local next_live_host = LIVE_HOSTS[runtime.live_host_idx]
+            local prev_host = runtime.target_host
+            runtime.target_host = next_live_host
+            mp.msg.warn(string.format("[BTR] 直播節點 [%s] 載入失敗，切換至備用官方節點 [%s]", prev_host, next_live_host))
+            if runtime.original_stream_path and runtime.original_stream_path ~= "" then
+                local next_path, c = rewrite_stream_filename(runtime.original_stream_path)
+                if c > 0 then
+                    mp.set_property("stream-open-filename", next_path)
+                    return
+                end
+            end
+        end
+
+        -- 直接恢復原始 stream-open-filename
+        if runtime.original_stream_path and runtime.original_stream_path ~= "" then
+            mp.msg.warn(string.format("[BTR] 自動降級恢復原始串流 [%s]",
+                runtime.original_host ~= "" and runtime.original_host or "原生節點"))
+            mp.set_property("stream-open-filename", runtime.original_stream_path)
             return
         end
     end
 
+    runtime.original_stream_path = path
     local new_path, count = rewrite_stream_filename(path)
     if count > 0 and new_path ~= path then
         mp.set_property("stream-open-filename", new_path)
@@ -712,14 +745,12 @@ local function render_main_page(ass, x0, y0, w, h)
     -- 說明文案
     local desc_y = btn_y + btn_h + 12
     ass:new_event()
-    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}Safari 用戶建議使用兼容模式。", x0 + 20, desc_y))
+    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}全接管：播放內核由BTR接管，速度最快。", x0 + 20, desc_y))
     ass:new_event()
-    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}全接管：播放內核由BTR接管，速度最快。", x0 + 20, desc_y + 18))
-    ass:new_event()
-    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}兼容模式：遇到任何問題，嘗試兼容模式。", x0 + 20, desc_y + 34))
+    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs11\\fnMicrosoft JhengHei\\1c&H888888&}兼容模式：遇到任何問題，嘗試兼容模式。", x0 + 20, desc_y + 18))
 
     -- 3. 運行狀態 Section
-    local sec2_y = desc_y + 54
+    local sec2_y = desc_y + 40
     ass:new_event()
     ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs13\\b1\\fnMicrosoft JhengHei\\1c&H999999&}運行狀態", x0 + 20, sec2_y))
 
@@ -732,17 +763,17 @@ local function render_main_page(ass, x0, y0, w, h)
     ass:round_rect_cw(x0 + 20, status_card_y, x0 + 20 + card_w, status_card_y + card_h, 8)
     ass:draw_stop()
 
-    local active_threads = runtime.is_accelerated and (runtime.mode_used == "ripper" and (settings.threads or 16) or 1) or 0
+    local active_threads = runtime.is_accelerated and (runtime.mode_used == "ripper" and (settings.threads or 32) or 1) or 0
     local cache_secs = mp.get_property_number("demuxer-cache-duration") or 0
     local cache_bytes = mp.get_property_number("demuxer-cache-state/total-bytes") or 0
-    local cache_kb = math.floor(cache_bytes / 1024)
+    local cache_mb = cache_bytes / (1024 * 1024)
 
     ass:new_event()
     ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}條線程",
         x0 + 36, status_card_y + card_h / 2, active_threads))
     ass:new_event()
-    ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}KB/s (%.1fs)",
-        x0 + 20 + card_w - 16, status_card_y + card_h / 2, math.min(cache_kb, 9999), cache_secs))
+    ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%.1f {\\fs13\\b0\\1c&HAAAAAA&}MB 緩衝 (%.1fs)",
+        x0 + 20 + card_w - 16, status_card_y + card_h / 2, cache_mb, cache_secs))
 
     -- 4. 高級設置 Section (卡片可點擊跳轉)
     local adv_card_y = status_card_y + card_h + 16
@@ -939,7 +970,7 @@ local function render_advanced_page(ass, x0, y0, w, h)
         local track_x = x0 + 34
         local track_w = card_w - 28
         local track_y = th_card_y + 86
-        local curr_idx = 2 -- 預設為 8
+        local curr_idx = 4 -- 預設為 32
         for i, val in ipairs(th_steps) do
             if settings.threads == val then
                 curr_idx = i
@@ -1288,10 +1319,10 @@ local function on_mouse_click()
             elseif btn.id == "toggle_auto_threads" then
                 settings.auto_threads = not settings.auto_threads
                 if settings.auto_threads then
-                    settings.threads = 8
+                    settings.threads = 32
                 end
                 save_settings()
-                mp.osd_message("[BTR] 自動線程數已" .. (settings.auto_threads and "開啟 (推薦8線程)" or "關閉"), 1.5)
+                mp.osd_message("[BTR] 自動線程數已" .. (settings.auto_threads and "開啟 (推薦32線程)" or "關閉"), 1.5)
                 render_menu()
             elseif btn.id:match("^th_step_") and btn.threads then
                 settings.threads = btn.threads
@@ -1411,4 +1442,5 @@ mp.register_script_message("btr-open-advanced", function()
     if not is_open then open_menu("advanced") else render_menu() end
 end)
 
+launch_engine_async()
 mp.msg.info("[BTR] Bilibili 執行緒撕裂者模組已就緒 (快捷鍵: Alt+t)")

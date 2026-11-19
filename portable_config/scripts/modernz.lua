@@ -1916,6 +1916,30 @@ local function glass_blur_install()
     end
     glass_blur.path = path
 
+    -- [CUSTOM-START]
+    mp.observe_property("glsl-shaders", "native", function(_, list)
+        if not glass_blur.path then return end
+        local found = false
+        if list then
+            for _, p in ipairs(list) do
+                if p == glass_blur.path then
+                    found = true
+                    break
+                end
+            end
+        end
+        if not found and glass_blur.loaded == true then
+            glass_blur.loaded = false
+            glass_blur.sig = nil
+            if state.osc_visible or state.wc_visible then
+                if glass_blur.on_resume then
+                    glass_blur.on_resume()
+                end
+            end
+        end
+    end)
+    -- [CUSTOM-END]
+
     -- mpv's default screenshot keys, taken without the blur in the picture
     -- (keys bound in input.conf still win over these)
     for key, mode in pairs({s = "subtitles", S = "video"}) do

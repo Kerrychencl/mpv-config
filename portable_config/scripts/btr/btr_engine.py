@@ -1,6 +1,7 @@
 # Bilibili Thread Ripper (BTR) Engine for MPV
 # High-concurrency chunk streaming proxy and CDN mirror optimizer
 import http.server
+import http.client
 import socketserver
 import threading
 import urllib.request
@@ -10,6 +11,9 @@ import time
 import sys
 import os
 import re
+import ssl
+import queue
+import collections
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 MAINLAND_HOSTS = [
@@ -32,18 +36,97 @@ OVERSEAS_HOSTS = [
     "upos-hz-mirrorakam.akamaized.net",
 ]
 
+LIVE_HOSTS = [
+    "d1--cn-gotcha01.bilivideo.com",
+    "d1--cn-gotcha04.bilivideo.com",
+    "d1--cn-gotcha05.bilivideo.com",
+    "d1--cn-gotcha07.bilivideo.com",
+]
+
+ALLOWED_DOMAINS = (
+    "bilivideo.com",
+    "bilivideo.cn",
+    "akamaized.net",
+    "bilibili.com",
+    "hdslb.com",
+)
+
+def is_allowed_upstream_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False
+        return any(host == d or host.endswith("." + d) for d in ALLOWED_DOMAINS)
+    except Exception:
+        return False
+
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     "Referer": "https://www.bilibili.com",
     "Origin": "https://www.bilibili.com",
 }
 
+class HTTPConnectionPool:
+    def __init__(self, maxsize_per_host=32, timeout=6.0):
+        self.maxsize = maxsize_per_host
+        self.timeout = timeout
+        self.pools = {}
+        self.lock = threading.Lock()
+        self.ssl_context = ssl.create_default_context()
+
+    def get_connection(self, scheme: str, host: str, port: int = None):
+        if port is None:
+            port = 443 if scheme == "https" else 80
+        key = (scheme, host, port)
+        with self.lock:
+            if key not in self.pools:
+                self.pools[key] = queue.LifoQueue(maxsize=self.maxsize)
+            q = self.pools[key]
+        try:
+            conn = q.get_nowait()
+        except queue.Empty:
+            if scheme == "https":
+                conn = http.client.HTTPSConnection(host, port, timeout=self.timeout, context=self.ssl_context)
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=self.timeout)
+        return conn, key
+
+    def release_connection(self, key, conn, close=False):
+        if close:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return
+        with self.lock:
+            q = self.pools.get(key)
+        if q is not None:
+            try:
+                q.put_nowait(conn)
+            except queue.Full:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        else:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+http_pool = HTTPConnectionPool(maxsize_per_host=32, timeout=6.0)
+
 # Cache for probe results: {host: {"latency_ms": float, "status": str, "ts": float}}
 probe_cache = {}
 probe_cache_lock = threading.Lock()
 
-# Cache for stream metadata: {url_key: {"total_size": int, "content_type": str, "stream_url": str}}
-file_info_cache = {}
+# Cache for stream metadata: {url_key: {"total_size": int, "content_type": str, "ts": float}}
+FILE_INFO_CACHE_TTL = 600.0
+FILE_INFO_CACHE_MAX_ENTRIES = 128
+file_info_cache = collections.OrderedDict()
 file_info_cache_lock = threading.Lock()
 
 def get_url_cache_key(url: str) -> str:
@@ -90,7 +173,7 @@ def swap_node(raw_url: str, target_host: str) -> str:
 
         # B站直播串流優化：若為 live 串流或 PCDN (mcdn)，自動導向官方低延遲直播邊緣節點
         if is_live_url(raw_url):
-            live_host = "d1--cn-gotcha01.bilivideo.com"
+            live_host = target_host if target_host in LIVE_HOSTS else LIVE_HOSTS[0]
             qs = urllib.parse.parse_qs(parsed.query)
             for p2p_key in ["os", "p2p_type", "backup_url", "p2p"]:
                 qs.pop(p2p_key, None)
@@ -167,9 +250,13 @@ def probe_upstream_metadata(target_url: str, target_host: str):
     cache_key = get_url_cache_key(target_url)
     with file_info_cache_lock:
         if cache_key in file_info_cache:
-            return file_info_cache[cache_key]
+            entry = file_info_cache[cache_key]
+            if time.time() - entry["ts"] < FILE_INFO_CACHE_TTL:
+                file_info_cache.move_to_end(cache_key)
+                return {"total_size": entry["total_size"], "content_type": entry["content_type"]}
+            else:
+                del file_info_cache[cache_key]
 
-    stream_url = swap_node(target_url, target_host)
     total_size = None
     content_type = "video/mp4"
 
@@ -177,6 +264,8 @@ def probe_upstream_metadata(target_url: str, target_host: str):
     if target_host in OVERSEAS_HOSTS:
         candidate_hosts += [h for h in OVERSEAS_HOSTS if h != target_host]
         candidate_hosts += MAINLAND_HOSTS[:2]
+    elif target_host in LIVE_HOSTS:
+        candidate_hosts += [h for h in LIVE_HOSTS if h != target_host]
     else:
         candidate_hosts += [h for h in MAINLAND_HOSTS if h != target_host]
 
@@ -194,7 +283,6 @@ def probe_upstream_metadata(target_url: str, target_host: str):
                     m = re.match(r"bytes\s+\d+-\d+/(\d+)", cr)
                     if m:
                         total_size = int(m.group(1))
-                        stream_url = h_url
                         break
         except Exception:
             continue
@@ -203,11 +291,13 @@ def probe_upstream_metadata(target_url: str, target_host: str):
         info = {
             "total_size": total_size,
             "content_type": content_type,
-            "stream_url": stream_url,
+            "ts": time.time(),
         }
         with file_info_cache_lock:
+            if len(file_info_cache) >= FILE_INFO_CACHE_MAX_ENTRIES:
+                file_info_cache.popitem(last=False)
             file_info_cache[cache_key] = info
-        return info
+        return {"total_size": total_size, "content_type": content_type}
 
     return None
 
@@ -236,6 +326,10 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             target_url = raw_urls[0]
+            if not is_allowed_upstream_url(target_url):
+                self.send_response(403)
+                self.end_headers()
+                return
             cdn_mode = query.get("cdn", ["mainland"])[0]
             target_host = resolve_host_from_mode(cdn_mode)
 
@@ -280,13 +374,16 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/probe":
             results = []
-            hosts = query.get("hosts", [])
-            if not hosts:
+            allowed_probe_hosts = set(MAINLAND_HOSTS + OVERSEAS_HOSTS + LIVE_HOSTS)
+            raw_hosts = query.get("hosts", [])
+            if not raw_hosts:
                 hosts = MAINLAND_HOSTS + OVERSEAS_HOSTS
             else:
-                hosts = hosts[0].split(",")
+                hosts = [h.strip() for h in raw_hosts[0].split(",") if h.strip() in allowed_probe_hosts]
+                if not hosts:
+                    hosts = MAINLAND_HOSTS + OVERSEAS_HOSTS
 
-            with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
+            with ThreadPoolExecutor(max_workers=max(1, len(hosts))) as executor:
                 futures = {executor.submit(probe_node, h): h for h in hosts}
                 for f in as_completed(futures):
                     res = f.result()
@@ -320,14 +417,18 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         target_url = raw_urls[0]
+        if not is_allowed_upstream_url(target_url):
+            self.send_response(403)
+            self.end_headers()
+            return
 
         cdn_mode = query.get("cdn", ["mainland"])[0]
         target_host = resolve_host_from_mode(cdn_mode)
 
         try:
-            threads = int(query.get("threads", ["16"])[0].split(',')[0].split(';')[0])
+            threads = int(query.get("threads", ["32"])[0].split(',')[0].split(';')[0])
         except Exception:
-            threads = 16
+            threads = 32
         threads = max(1, min(64, threads))
         is_thumb = query.get("thumb", ["0"])[0].split(',')[0].split(';')[0] == "1" or threads <= 1
 
@@ -354,7 +455,7 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
 
         total_size = meta["total_size"]
         content_type = meta["content_type"]
-        stream_url = meta["stream_url"]
+        stream_url = swap_node(target_url, target_host)
 
         if req_end is None or req_end >= total_size:
             req_end = total_size - 1
@@ -371,7 +472,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(content_len))
             self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             return
@@ -383,23 +483,42 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         if target_host in OVERSEAS_HOSTS:
             candidate_hosts += [h for h in OVERSEAS_HOSTS if h != target_host]
             candidate_hosts += MAINLAND_HOSTS[:2]
+        elif target_host in LIVE_HOSTS:
+            candidate_hosts += [h for h in LIVE_HOSTS if h != target_host]
         else:
             candidate_hosts += [h for h in MAINLAND_HOSTS if h != target_host]
+
+        active_hosts = candidate_hosts[:4]
 
         # For small requests or thumbnailer seeks (thumb=1 / threads=1), bypass thread pool
         # so seekbar scrubbing never spawns 32 threads or prefetches 64MB per keyframe seek.
         if content_len <= CHUNK_SIZE or is_thumb:
-            headers = dict(DEFAULT_HEADERS)
-            headers["Range"] = f"bytes={req_start}-{req_end}"
             for host in candidate_hosts[:3]:
-                req_url = swap_node(stream_url, host)
-                req = urllib.request.Request(req_url, headers=headers)
+                req_url = swap_node(target_url, host)
+                parsed = urllib.parse.urlparse(req_url)
+                scheme = parsed.scheme or "https"
+                h_name = parsed.hostname
+                port = parsed.port
+                path_query = parsed.path
+                if parsed.query:
+                    path_query += "?" + parsed.query
+                headers = dict(DEFAULT_HEADERS)
+                headers["Range"] = f"bytes={req_start}-{req_end}"
+                headers["Connection"] = "keep-alive"
+                conn, pool_key = http_pool.get_connection(scheme, h_name, port)
                 try:
-                    with urllib.request.urlopen(req, timeout=6) as resp:
+                    conn.request("GET", path_query, headers=headers)
+                    resp = conn.getresponse()
+                    if resp.status in (200, 206):
                         while chunk := resp.read(64 * 1024):
                             self.wfile.write(chunk)
+                        http_pool.release_connection(pool_key, conn, close=False)
                         return
+                    else:
+                        resp.read()
+                        http_pool.release_connection(pool_key, conn, close=True)
                 except Exception:
+                    http_pool.release_connection(pool_key, conn, close=True)
                     continue
             return
 
@@ -422,33 +541,57 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         def fetch_chunk(c_idx, c_start, c_end):
             if stop_event.is_set():
                 return
-            # Attempt primary host then fallbacks (up to 2 passes)
+            # Multi-node round-robin: distribute start node by c_idx % len(active_hosts)
+            start_node_idx = c_idx % len(active_hosts)
+            ordered_hosts = [active_hosts[(start_node_idx + i) % len(active_hosts)] for i in range(len(active_hosts))]
+
             for _attempt in range(2):
-                for host in candidate_hosts[:4]:
+                for host in ordered_hosts:
                     if stop_event.is_set():
                         return
                     h_url = swap_node(target_url, host)
-                    chunk_req = urllib.request.Request(
-                        h_url,
-                        headers={**DEFAULT_HEADERS, "Range": f"bytes={c_start}-{c_end}"}
-                    )
+                    parsed = urllib.parse.urlparse(h_url)
+                    scheme = parsed.scheme or "https"
+                    h_name = parsed.hostname
+                    port = parsed.port
+                    path_query = parsed.path
+                    if parsed.query:
+                        path_query += "?" + parsed.query
+
+                    headers = dict(DEFAULT_HEADERS)
+                    headers["Range"] = f"bytes={c_start}-{c_end}"
+                    headers["Connection"] = "keep-alive"
+
+                    conn, pool_key = http_pool.get_connection(scheme, h_name, port)
                     try:
-                        with urllib.request.urlopen(chunk_req, timeout=6) as c_resp:
-                            if c_resp.status in (200, 206):
-                                buf = bytearray()
-                                while not stop_event.is_set():
-                                    piece = c_resp.read(128 * 1024)
-                                    if not piece:
-                                        break
-                                    buf.extend(piece)
-                                if stop_event.is_set():
-                                    return
-                                if len(buf) == (c_end - c_start + 1):
-                                    with download_cond:
-                                        downloaded[c_idx] = bytes(buf)
-                                        download_cond.notify_all()
-                                    return
+                        conn.request("GET", path_query, headers=headers)
+                        resp = conn.getresponse()
+                        if resp.status in (200, 206):
+                            buf = bytearray()
+                            while not stop_event.is_set():
+                                piece = resp.read(128 * 1024)
+                                if not piece:
+                                    break
+                                buf.extend(piece)
+                            if stop_event.is_set():
+                                http_pool.release_connection(pool_key, conn, close=True)
+                                return
+                            if len(buf) == (c_end - c_start + 1):
+                                http_pool.release_connection(pool_key, conn, close=False)
+                                with download_cond:
+                                    downloaded[c_idx] = bytes(buf)
+                                    download_cond.notify_all()
+                                return
+                            else:
+                                http_pool.release_connection(pool_key, conn, close=True)
+                        else:
+                            try:
+                                resp.read()
+                            except Exception:
+                                pass
+                            http_pool.release_connection(pool_key, conn, close=True)
                     except Exception:
+                        http_pool.release_connection(pool_key, conn, close=True)
                         continue
 
             # Mark chunk as failed to prevent consumer from hanging
@@ -456,8 +599,8 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                 downloaded[c_idx] = None
                 download_cond.notify_all()
 
-        # Bounded prefetch window: cap at 16 chunks in flight (~16 MB max) to prevent CDN choke on seek
-        PREFETCH_WINDOW = min(max(threads, 4), 16)
+        # Bounded prefetch window: cap at 32 chunks in flight (~32 MB max)
+        PREFETCH_WINDOW = min(max(threads, 4), 32)
         executor = ThreadPoolExecutor(max_workers=threads)
         next_to_submit = 0
 
@@ -492,6 +635,8 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             pass
         finally:
             stop_event.set()
+            with download_cond:
+                download_cond.notify_all()
             executor.shutdown(wait=False, cancel_futures=True)
 
     def stream_direct_passthrough(self, stream_url, range_header):

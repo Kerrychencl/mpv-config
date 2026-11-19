@@ -11,6 +11,7 @@ portable_config/watch_later/
 portable_config/sponsorblock_shared/*
 !portable_config/sponsorblock_shared/sponsor_unified.py
 portable_config/file_browser-last_opened_directory
+url-scheme-handler/config.json
 
 # Danmaku cache files
 *.danmaku.xml
@@ -23,7 +24,8 @@ __pycache__/
 *.part
 *.tmp
 *.log
-!prove-it/*.log
+prove-it/screenshots/
+prove-it/*.log
 prove-it/*_debug.log
 prove-it/settled_test.log
 *.bgra
