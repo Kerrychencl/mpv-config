@@ -542,9 +542,16 @@ local function handle_btr_load(is_fail)
 
         -- 直接恢復原始 stream-open-filename
         if runtime.original_stream_path and runtime.original_stream_path ~= "" then
+            local orig_path = runtime.original_stream_path
+            runtime.original_stream_path = nil
+            if runtime.mode_used == "ripper" then
+                runtime.engine_port = 0
+                pcall(os.remove, get_temp_port_file())
+                launch_engine_async()
+            end
             mp.msg.warn(string.format("[BTR] 自動降級恢復原始串流 [%s]",
                 runtime.original_host ~= "" and runtime.original_host or "原生節點"))
-            mp.set_property("stream-open-filename", runtime.original_stream_path)
+            mp.set_property("stream-open-filename", orig_path)
             return
         end
     end

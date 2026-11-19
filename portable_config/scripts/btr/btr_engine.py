@@ -455,7 +455,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
 
         total_size = meta["total_size"]
         content_type = meta["content_type"]
-        stream_url = swap_node(target_url, target_host)
 
         if req_end is None or req_end >= total_size:
             req_end = total_size - 1
@@ -494,32 +493,54 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         # so seekbar scrubbing never spawns 32 threads or prefetches 64MB per keyframe seek.
         if content_len <= CHUNK_SIZE or is_thumb:
             for host in candidate_hosts[:3]:
-                req_url = swap_node(target_url, host)
-                parsed = urllib.parse.urlparse(req_url)
-                scheme = parsed.scheme or "https"
-                h_name = parsed.hostname
-                port = parsed.port
-                path_query = parsed.path
-                if parsed.query:
-                    path_query += "?" + parsed.query
-                headers = dict(DEFAULT_HEADERS)
-                headers["Range"] = f"bytes={req_start}-{req_end}"
-                headers["Connection"] = "keep-alive"
-                conn, pool_key = http_pool.get_connection(scheme, h_name, port)
-                try:
-                    conn.request("GET", path_query, headers=headers)
-                    resp = conn.getresponse()
-                    if resp.status in (200, 206):
-                        while chunk := resp.read(64 * 1024):
-                            self.wfile.write(chunk)
-                        http_pool.release_connection(pool_key, conn, close=False)
-                        return
-                    else:
-                        resp.read()
+                cur_url = swap_node(target_url, host)
+                for _hop in range(3):
+                    parsed = urllib.parse.urlparse(cur_url)
+                    scheme = parsed.scheme or "https"
+                    h_name = parsed.hostname
+                    port = parsed.port
+                    path_query = parsed.path or "/"
+                    if parsed.query:
+                        path_query += "?" + parsed.query
+                    headers = dict(DEFAULT_HEADERS)
+                    headers["Range"] = f"bytes={req_start}-{req_end}"
+                    headers["Connection"] = "keep-alive"
+                    conn, pool_key = http_pool.get_connection(scheme, h_name, port)
+                    try:
+                        conn.request("GET", path_query, headers=headers)
+                        resp = conn.getresponse()
+                        if resp.status in (200, 206):
+                            while chunk := resp.read(64 * 1024):
+                                self.wfile.write(chunk)
+                            http_pool.release_connection(pool_key, conn, close=False)
+                            return
+                        elif resp.status in (301, 302, 307, 308):
+                            loc = resp.getheader("Location") or (resp.headers.get("Location") if resp.headers else None)
+                            try:
+                                resp.read()
+                                drained = True
+                            except Exception:
+                                drained = False
+                            http_pool.release_connection(pool_key, conn, close=not drained)
+                            if loc:
+                                redir_url = urllib.parse.urljoin(cur_url, loc)
+                                if is_allowed_upstream_url(redir_url):
+                                    cur_url = redir_url
+                                    continue
+                            break
+                        else:
+                            try:
+                                resp.read()
+                            except Exception:
+                                pass
+                            http_pool.release_connection(pool_key, conn, close=True)
+                            break
+                    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
                         http_pool.release_connection(pool_key, conn, close=True)
-                except Exception:
-                    http_pool.release_connection(pool_key, conn, close=True)
-                    continue
+                        return
+                    except Exception:
+                        http_pool.release_connection(pool_key, conn, close=True)
+                        break
             return
 
         # Multi-threaded chunk downloading with bounded sliding prefetch window
@@ -549,50 +570,69 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                 for host in ordered_hosts:
                     if stop_event.is_set():
                         return
-                    h_url = swap_node(target_url, host)
-                    parsed = urllib.parse.urlparse(h_url)
-                    scheme = parsed.scheme or "https"
-                    h_name = parsed.hostname
-                    port = parsed.port
-                    path_query = parsed.path
-                    if parsed.query:
-                        path_query += "?" + parsed.query
+                    cur_url = swap_node(target_url, host)
+                    for _hop in range(3):
+                        if stop_event.is_set():
+                            return
+                        parsed = urllib.parse.urlparse(cur_url)
+                        scheme = parsed.scheme or "https"
+                        h_name = parsed.hostname
+                        port = parsed.port
+                        path_query = parsed.path or "/"
+                        if parsed.query:
+                            path_query += "?" + parsed.query
 
-                    headers = dict(DEFAULT_HEADERS)
-                    headers["Range"] = f"bytes={c_start}-{c_end}"
-                    headers["Connection"] = "keep-alive"
+                        headers = dict(DEFAULT_HEADERS)
+                        headers["Range"] = f"bytes={c_start}-{c_end}"
+                        headers["Connection"] = "keep-alive"
 
-                    conn, pool_key = http_pool.get_connection(scheme, h_name, port)
-                    try:
-                        conn.request("GET", path_query, headers=headers)
-                        resp = conn.getresponse()
-                        if resp.status in (200, 206):
-                            buf = bytearray()
-                            while not stop_event.is_set():
-                                piece = resp.read(128 * 1024)
-                                if not piece:
+                        conn, pool_key = http_pool.get_connection(scheme, h_name, port)
+                        try:
+                            conn.request("GET", path_query, headers=headers)
+                            resp = conn.getresponse()
+                            if resp.status in (200, 206):
+                                buf = bytearray()
+                                while not stop_event.is_set():
+                                    piece = resp.read(128 * 1024)
+                                    if not piece:
+                                        break
+                                    buf.extend(piece)
+                                if stop_event.is_set():
+                                    http_pool.release_connection(pool_key, conn, close=True)
+                                    return
+                                if len(buf) == (c_end - c_start + 1):
+                                    http_pool.release_connection(pool_key, conn, close=False)
+                                    with download_cond:
+                                        downloaded[c_idx] = bytes(buf)
+                                        download_cond.notify_all()
+                                    return
+                                else:
+                                    http_pool.release_connection(pool_key, conn, close=True)
                                     break
-                                buf.extend(piece)
-                            if stop_event.is_set():
-                                http_pool.release_connection(pool_key, conn, close=True)
-                                return
-                            if len(buf) == (c_end - c_start + 1):
-                                http_pool.release_connection(pool_key, conn, close=False)
-                                with download_cond:
-                                    downloaded[c_idx] = bytes(buf)
-                                    download_cond.notify_all()
-                                return
+                            elif resp.status in (301, 302, 307, 308):
+                                loc = resp.getheader("Location") or (resp.headers.get("Location") if resp.headers else None)
+                                try:
+                                    resp.read()
+                                    drained = True
+                                except Exception:
+                                    drained = False
+                                http_pool.release_connection(pool_key, conn, close=not drained)
+                                if loc:
+                                    redir_url = urllib.parse.urljoin(cur_url, loc)
+                                    if is_allowed_upstream_url(redir_url):
+                                        cur_url = redir_url
+                                        continue
+                                break
                             else:
+                                try:
+                                    resp.read()
+                                except Exception:
+                                    pass
                                 http_pool.release_connection(pool_key, conn, close=True)
-                        else:
-                            try:
-                                resp.read()
-                            except Exception:
-                                pass
+                                break
+                        except Exception:
                             http_pool.release_connection(pool_key, conn, close=True)
-                    except Exception:
-                        http_pool.release_connection(pool_key, conn, close=True)
-                        continue
+                            break
 
             # Mark chunk as failed to prevent consumer from hanging
             with download_cond:

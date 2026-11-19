@@ -92,6 +92,7 @@ local function extract_ids()
     local targets = { webpage_url, filtered_url, path, stream_open, filename, media_title, playlist_path }
     local yt_id = nil
     local bvid = nil
+    local cid = nil
 
     for _, target in ipairs(targets) do
         if target and target ~= "" then

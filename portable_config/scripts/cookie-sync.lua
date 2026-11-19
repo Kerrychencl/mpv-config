@@ -271,8 +271,9 @@ local function sync_cookies(force_verify, allow_browser_retry, on_complete)
     end
 
     -- 【同步極速交差】：立即依當前已知狀態寫入 active_cookie_file，不阻塞播放器
-    write_active_cookies(general_lines, bili_lines, bili_is_valid)
-    if bili_is_valid then
+    local include_bili = bili_is_valid or (not bili_verified)
+    write_active_cookies(general_lines, bili_lines, include_bili)
+    if include_bili then
         cached_bili_cookie = bili_raw_cookie
     else
         cached_bili_cookie = nil
