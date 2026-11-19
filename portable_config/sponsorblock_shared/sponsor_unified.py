@@ -35,11 +35,12 @@ CATEGORY_CONFIG = {
     'poi_highlight': {'name': '高能精彩看點', 'color': '#9B51E0', 'default_skip': False},
 }
 
-def get_bilibili_segments(bvid):
+def get_bilibili_segments(bvid, cid=None):
     if not bvid:
         return []
     h = hashlib.sha256(bvid.encode('utf-8')).hexdigest()[:4]
-    url = f'https://bsbsb.top/api/skipSegments/{h}'
+    cats = json.dumps(list(CATEGORY_CONFIG.keys()))
+    url = f'https://bsbsb.top/api/skipSegments/{h}?categories=' + urllib.parse.quote(cats)
     req = urllib.request.Request(url, headers={'User-Agent': 'mpv-bilibili-sponsorblock/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=6) as resp:
@@ -49,11 +50,17 @@ def get_bilibili_segments(bvid):
                     raw_segs = item.get('segments', [])
                     normalized = []
                     for s in raw_segs:
+                        if cid:
+                            seg_cid = str(s.get('cid') or '').strip()
+                            if seg_cid and seg_cid != str(cid).strip():
+                                continue
                         cat = s.get('category', 'sponsor')
                         cfg = CATEGORY_CONFIG.get(cat, {'name': '自訂片段', 'color': '#A0A0A0', 'default_skip': False})
                         seg_range = s.get('segment', [0, 0])
+                        if len(seg_range) == 1:
+                            seg_range = [seg_range[0], seg_range[0]]
                         action = s.get('actionType', 'skip')
-                        is_skip = (cat == 'sponsor') and (action != 'poi')
+                        is_skip = (cat == 'sponsor') and (action not in ('poi', 'full'))
                         if seg_range[1] >= seg_range[0]:
                             normalized.append({
                                 'uuid': s.get('UUID', ''),
@@ -88,8 +95,10 @@ def get_youtube_segments(vid):
                         cat = s.get('category', 'sponsor')
                         cfg = CATEGORY_CONFIG.get(cat, {'name': '自訂片段', 'color': '#A0A0A0', 'default_skip': False})
                         seg_range = s.get('segment', [0, 0])
+                        if len(seg_range) == 1:
+                            seg_range = [seg_range[0], seg_range[0]]
                         action = s.get('actionType', 'skip')
-                        is_skip = (cat == 'sponsor') and (action != 'poi')
+                        is_skip = (cat == 'sponsor') and (action not in ('poi', 'full'))
                         if seg_range[1] >= seg_range[0]:
                             normalized.append({
                                 'uuid': s.get('UUID', ''),
@@ -112,11 +121,13 @@ def main():
     parser.add_argument('--url', default='', help="Video URL or path")
     parser.add_argument('--yt-id', default='', help="YouTube Video ID")
     parser.add_argument('--bvid', default='', help="Bilibili BV ID")
+    parser.add_argument('--cid', default='', help="Bilibili CID for multi-P videos")
     args = parser.parse_args()
 
     url = args.url or ""
     yt_id = args.yt_id or ""
     bvid = args.bvid or ""
+    cid = args.cid or ""
 
     if not yt_id and not bvid and url:
         m_bv = re.search(r'([Bb][Vv][0-9A-Za-z]+)', url)
@@ -125,6 +136,10 @@ def main():
         m_yt = re.search(r'(?:v=|youtu\.be/|/embed/|/v/)([a-zA-Z0-9_-]{11})', url)
         if m_yt:
             yt_id = m_yt.group(1)
+        if not cid:
+            m_cid = re.search(r'[?&]cid=(\d+)', url)
+            if m_cid:
+                cid = m_cid.group(1)
 
     result = {
         'status': 'empty',
@@ -134,10 +149,12 @@ def main():
     }
 
     if bvid:
-        segs = get_bilibili_segments(bvid)
+        segs = get_bilibili_segments(bvid, cid)
         result['status'] = 'ok' if segs else 'empty'
         result['service'] = 'bilibili'
         result['video_id'] = bvid
+        if cid:
+            result['cid'] = cid
         result['segments'] = segs
     elif yt_id:
         segs = get_youtube_segments(yt_id)

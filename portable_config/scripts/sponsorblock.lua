@@ -28,6 +28,8 @@ local current_segments = {}
 local last_skip = nil
 local active_video_id = nil
 local is_fetching = false
+local fetch_token = 0
+local active_fetch_handle = nil
 
 local function format_time(seconds)
     if not seconds or seconds < 0 then return "00:00" end
@@ -59,7 +61,7 @@ local function add_sb_chapters(segments)
     local dur = mp.get_property_number("duration", 0)
 
     for _, seg in ipairs(segments) do
-        if seg.end_time and seg.start_time and seg.end_time > seg.start_time then
+        if seg.action ~= 'full' and seg.end_time and seg.start_time and seg.end_time > seg.start_time then
             local name = seg.name or "贊助片段"
             local st = math.max(0, seg.start_time)
             local et = (dur > 0 and seg.end_time >= dur) and (dur - 0.05) or seg.end_time
@@ -116,25 +118,47 @@ local function extract_ids()
                     bvid = b
                 else
                     local a = target:match("bilibili%.com/video/[Aa][Vv](%d+)")
-                        or target:match("[Aa][Vv](%d%d%d%d%d+)")
+                        or target:match("[^%w][Aa][Vv](%d%d%d%d%d+)")
+                        or target:match("^[Aa][Vv](%d%d%d%d%d+)")
                         or target:match("^[Aa][Vv](%d+)$")
                     if a then
                         bvid = "av" .. a
                     end
                 end
             end
+
+            -- 3. Bilibili CID (URL 參數或元數據，過濾多 P 區間)
+            if not cid then
+                local c = target:match("[?&]cid=(%d+)")
+                if c then
+                    cid = c
+                end
+            end
         end
     end
 
-    return bvid, yt_id
+    if not cid then
+        cid = mp.get_property("metadata/by-key/cid")
+            or mp.get_property("filtered-metadata/by-key/cid")
+            or mp.get_property("user-data/btr/cid")
+    end
+
+    return bvid, yt_id, cid
 end
 
 -- 自動跳過監聽器 (前置宣告以便 fetch_segments 結束後立即觸發)
 local on_time_pos
 
-local function fetch_segments(url, yt_id, bvid)
-    if is_fetching then return end
+local function fetch_segments(url, yt_id, bvid, cid)
+    if is_fetching then
+        if active_fetch_handle then
+            pcall(mp.abort_async_command, active_fetch_handle)
+            active_fetch_handle = nil
+        end
+    end
     is_fetching = true
+    fetch_token = fetch_token + 1
+    local my_token = fetch_token
 
     local args = { get_python(), '-X', 'utf8', helper_py }
     if yt_id and yt_id ~= "" then
@@ -143,21 +167,31 @@ local function fetch_segments(url, yt_id, bvid)
     elseif bvid and bvid ~= "" then
         table.insert(args, '--bvid')
         table.insert(args, bvid)
+        if cid and cid ~= "" then
+            table.insert(args, '--cid')
+            table.insert(args, tostring(cid))
+        end
     elseif url and url ~= "" then
         table.insert(args, '--url')
         table.insert(args, url)
+        if cid and cid ~= "" then
+            table.insert(args, '--cid')
+            table.insert(args, tostring(cid))
+        end
     else
         is_fetching = false
         return
     end
 
-    mp.command_native_async({
+    active_fetch_handle = mp.command_native_async({
         name = 'subprocess',
         playback_only = false,
         capture_stdout = true,
         args = args
     }, function(success, result, error)
         is_fetching = false
+        active_fetch_handle = nil
+        if my_token ~= fetch_token then return end
         if success and result and result.status == 0 and result.stdout then
             local data = utils.parse_json(result.stdout)
             if data and data.status == "ok" and data.segments and #data.segments > 0 then
@@ -204,6 +238,7 @@ local sb_overlay = mp.create_osd_overlay('ass-events')
 sb_overlay.z = 2100
 local manual_skip_active = nil
 local manual_skip_btn_rect = nil
+local execute_manual_skip
 
 local MANUAL_SKIP_SECTION = "sponsorblock_manual_skip"
 
@@ -228,7 +263,7 @@ local function hide_manual_skip()
     end
 end
 
-local function execute_manual_skip(seg)
+execute_manual_skip = function(seg)
     if not seg then return end
     hide_manual_skip()
     last_skip = {
@@ -355,7 +390,7 @@ on_time_pos = function(name, pos)
                     mp.msg.info(msg)
                     return
                 end
-            elseif not seg.skip then
+            elseif not seg.skip and seg.action ~= 'full' then
                 -- 手動跳過區間（片頭、片尾、精彩看點、自促銷等）
                 if pos >= seg.start_time and pos < seg.end_time then
                     in_manual_seg = seg
@@ -365,7 +400,9 @@ on_time_pos = function(name, pos)
     end
 
     if in_manual_seg then
-        show_manual_skip(in_manual_seg)
+        if manual_skip_active ~= in_manual_seg then
+            show_manual_skip(in_manual_seg)
+        end
     else
         hide_manual_skip()
     end
@@ -386,9 +423,12 @@ local function undo_skip()
 end
 
 local function check_and_fetch()
-    local bvid, yt_id = extract_ids()
+    local bvid, yt_id, cid = extract_ids()
     local target_id = yt_id or bvid
     if not target_id then return end
+    if bvid and cid then
+        target_id = bvid .. "_" .. cid
+    end
 
     -- 若目前已有同一部影片的數據或正在抓取中，不重複請求
     if active_video_id == target_id and (#current_segments > 0 or is_fetching) then
@@ -397,19 +437,27 @@ local function check_and_fetch()
 
     active_video_id = target_id
     if yt_id then
-        fetch_segments("", yt_id, nil)
+        fetch_segments("", yt_id, nil, nil)
     elseif bvid then
-        fetch_segments("", nil, bvid)
+        fetch_segments("", nil, bvid, cid)
     end
 end
 
 local function on_file_loaded()
     hide_manual_skip()
-    local bvid, yt_id = extract_ids()
+    local bvid, yt_id, cid = extract_ids()
     local target_id = yt_id or bvid
+    if bvid and cid then
+        target_id = bvid .. "_" .. cid
+    end
 
     -- 只有切換不同影片時才清空現存數據
     if active_video_id ~= target_id then
+        if active_fetch_handle then
+            pcall(mp.abort_async_command, active_fetch_handle)
+            active_fetch_handle = nil
+        end
+        fetch_token = fetch_token + 1
         clean_chapters()
         current_segments = {}
         last_skip = nil
@@ -428,6 +476,11 @@ local function on_file_loaded()
 end
 
 local function on_end_file()
+    if active_fetch_handle then
+        pcall(mp.abort_async_command, active_fetch_handle)
+        active_fetch_handle = nil
+    end
+    fetch_token = fetch_token + 1
     hide_manual_skip()
     clean_chapters()
     current_segments = {}
@@ -441,7 +494,7 @@ end
 mp.register_script_message("sponsorblock-load-bvid", function(matched_bvid)
     if matched_bvid and matched_bvid ~= "" and (#current_segments == 0) then
         mp.msg.info("[SponsorBlock] B2Y 匹配到 B 站影片 " .. matched_bvid .. "，嘗試載入空降助手標記...")
-        fetch_segments("", nil, matched_bvid)
+        fetch_segments("", nil, matched_bvid, nil)
     end
 end)
 

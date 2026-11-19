@@ -87,7 +87,7 @@
 | **→ / ←** | 精確前進 / 後退 5 秒 |
 | **↑ / ↓** | 前進 / 後退 30 秒 |
 | **PageUp / PageDown** | 上一章節 / 下一章節 |
-| **F11 / F12** | 播放清單上一首 / 下一首 |
+| **Shift+PGUP / Shift+PGDWN** | 播放清單上一首 / 下一首 |
 | **. / ,** | 下一影格 / 上一影格 |
 | **l (小寫 L)** | 設定 / 清除 A-B 循環點 |
 | **L (大寫 L)** | 切換單曲循環播放 |
@@ -138,7 +138,7 @@
 | **Alt+c** | 呼出字幕軌選擇清單 |
 | **z / Z** | 字幕延遲 -0.1s / +0.1s |
 | **r / R** | 字幕垂直位置上移 / 下移 |
-| **F / G** | 字幕字體縮小 / 放大 |
+| **Shift+- / Shift++** | 字幕字體縮小 / 放大 |
 
 ### 6. 著色器 (Anime4K 快捷鍵)
 | 快捷鍵 | 功能說明 |
@@ -147,7 +147,7 @@
 | **Ctrl+2** | Anime4K: 模式 B (柔和去模糊 / 推薦老番與 720p) |
 | **Ctrl+3** | Anime4K: 模式 C (高清去噪細化 / 推薦 1080p 高清源) |
 | **Ctrl+4** | Anime4K: 模式 A+A (極致超解析度修復) |
-| **Ctrl+0 / Alt+c** | 關閉所有 GLSL 著色器 |
+| **Ctrl+0** | 關閉所有 GLSL 著色器 |
 
 ### 7. 工具與進階模組
 | 快捷鍵 | 功能說明 |
@@ -178,14 +178,14 @@ portable_config/
 │   ├── thumbz.lua            # 選單項目視訊縮圖生成引擎
 │   ├── sponsorblock.lua      # 廣告跳過與互動懸浮卡片
 │   ├── danmaku-menu.lua      # 彈幕設置面板
-│   ├── mpv_danmaku/          # 彈幕解析與載入核心
-│   ├── b2y/                  # Bilibili 轉 YouTube 彈幕匹配
+│   ├── mpv-danmaku/          # 彈幕解析與載入核心
+│   ├── b2y-menu.lua          # B2Y 彈幕匹配管理面板
 │   ├── btr/                  # 執行緒撕裂者加速面板與引擎
 │   │   ├── main.lua          # BTR 前端渲染與互動 (自適應縮放、粉紅徽章)
 │   │   └── btr_engine.py     # BTR 後台多線程代理伺服器
 │   ├── menu/                 # 右鍵選單核心 (mpv-menu-plugin-next)
 │   ├── SmartCopyPaste.lua    # 智慧貼上播放剪貼簿
-│   └── quality-menu/         # 串流畫質選擇器
+│   └── quality-menu.lua      # 串流畫質選擇器
 ├── shaders/                  # GLSL / Hook 視訊增強著色器庫
 │   ├── Anime4K_*             # Anime4K v4.0.1 全系列著色器
 │   ├── ArtCNN/               # ArtCNN 藝術增強模型
