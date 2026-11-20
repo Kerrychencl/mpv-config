@@ -161,8 +161,14 @@ def test_node_health_tracker():
     cooldown_selected = tracker.select_healthy_hosts(target_host=test_host, cdn_mode="mainland", count=4)
     cooldown_excluded_ok = (len(cooldown_selected) > 0 and cooldown_selected[0] != test_host)
 
-    passed = succ_ok and one_fail_ok and two_fails_ok and target_p1_ok and cooldown_excluded_ok
-    details = f"success: fail_cnt=0; 1 fail: fail_cnt=1, healthy=True; 2 fails: cooldown=True; target_p1={target_p1_ok}; cooldown_excluded={cooldown_excluded_ok}"
+    # Hedged loser does not trigger failure count or cooldown
+    tracker.record_hedge_loser(other_host, latency_ms=120.0)
+    tracker.record_hedge_loser(other_host, latency_ms=150.0)
+    h_loser = tracker.hosts[other_host]
+    hedge_ok = (h_loser["fail_count"] == 0) and tracker.is_healthy(other_host)
+
+    passed = succ_ok and one_fail_ok and two_fails_ok and target_p1_ok and cooldown_excluded_ok and hedge_ok
+    details = f"success: fail_cnt=0; 1 fail: fail_cnt=1, healthy=True; 2 fails: cooldown=True; target_p1={target_p1_ok}; cooldown_excluded={cooldown_excluded_ok}; hedge_loser_safe={hedge_ok}"
     record("NodeHealthTracker", passed, details)
 
 def test_status_endpoint():
@@ -190,8 +196,9 @@ def test_status_endpoint():
             c5 = isinstance(data.get("speed_mbps"), (int, float))
             c6 = isinstance(data.get("healthy_nodes"), list)
             c7 = isinstance(data.get("auto_threads"), bool)
+            c8 = ("Access-Control-Allow-Origin" not in resp.headers)
 
-            passed = c1 and c2 and c3 and c4 and c5 and c6 and c7
+            passed = c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8
             details = f"status={status_code}, ct={content_type}, keys: {list(data.keys())}, sample={data}"
     except Exception as e:
         passed = False

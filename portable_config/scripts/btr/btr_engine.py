@@ -195,6 +195,23 @@ class NodeHealthTracker:
             if info["fail_count"] >= 2:
                 info["cooldown_until"] = time.time() + 60.0
 
+    def record_hedge_loser(self, host: str, latency_ms: float = None):
+        with self.lock:
+            if host not in self.hosts:
+                self.hosts[host] = {
+                    "ewma_latency_ms": latency_ms or 300.0,
+                    "ewma_speed_mbps": 15.0,
+                    "fail_count": 0,
+                    "cooldown_until": 0.0,
+                }
+                return
+            info = self.hosts[host]
+            # Slower in hedged race: slightly adjust ewma_latency_ms without incrementing fail_count
+            if latency_ms is not None and latency_ms > 0:
+                info["ewma_latency_ms"] = 0.3 * latency_ms + 0.7 * info["ewma_latency_ms"]
+            else:
+                info["ewma_latency_ms"] = info["ewma_latency_ms"] * 1.15
+
     def select_healthy_hosts(self, target_host: str, cdn_mode: str = "mainland", count: int = 4) -> list:
         with self.lock:
             now = time.time()
@@ -559,7 +576,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
         if path == "/status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             return
 
@@ -623,7 +639,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
             return
@@ -850,14 +865,15 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             return to_sub
 
         def fetch_chunk(c_idx, c_start, c_end, preferred_host=None, is_hedged=False):
-            if stop_event.is_set():
-                return
-            with download_lock:
-                if c_idx in completed_c_idxs or stop_event.is_set():
-                    return
-            engine_stats.inc_active_threads()
-
+            stats_inc = False
             try:
+                if stop_event.is_set():
+                    return
+                with download_lock:
+                    if c_idx in completed_c_idxs or stop_event.is_set():
+                        return
+                engine_stats.inc_active_threads()
+                stats_inc = True
                 if preferred_host:
                     candidate_hosts = [preferred_host] + [h for h in active_hosts if h != preferred_host]
                 else:
@@ -933,7 +949,7 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                                             health_tracker.record_success(host, latency_ms=ttfb * 1000.0, speed_mbps=speed_mbps)
                                             controller.record_chunk(ttfb=ttfb, is_error=False)
                                         else:
-                                            health_tracker.record_failure(host)
+                                            health_tracker.record_hedge_loser(host, latency_ms=ttfb * 1000.0)
                                         return
                                     else:
                                         http_pool.release_connection(pool_key, conn, close=True)
@@ -975,7 +991,8 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
                                         controller.record_chunk(ttfb=3.5, is_error=True)
                                 break
             finally:
-                engine_stats.dec_active_threads()
+                if stats_inc:
+                    engine_stats.dec_active_threads()
                 to_schedule = []
                 with download_cond:
                     nonlocal active_tasks
@@ -1075,7 +1092,6 @@ class BTRStreamingHandler(http.server.BaseHTTPRequestHandler):
             with download_cond:
                 download_cond.notify_all()
             executor.shutdown(wait=False, cancel_futures=True)
-            engine_stats.reset_active()
 
     def stream_direct_passthrough(self, stream_url, range_header):
         headers = dict(DEFAULT_HEADERS)
