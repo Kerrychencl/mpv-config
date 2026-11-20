@@ -106,6 +106,7 @@ local runtime = {
     probing = false,
     original_stream_path = nil,
     live_host_idx = 1,
+    status_info = nil,
 }
 
 -- 尋找或啟動 btr_engine
@@ -191,16 +192,94 @@ local function ensure_engine_running()
     return nil
 end
 
+local function store_probe_data(data)
+    if type(data) ~= "table" then return end
+    local map = {}
+    if #data > 0 then
+        for _, item in ipairs(data) do
+            if item.host then
+                map[item.host] = {
+                    latency_ms = item.latency_ms or 9999,
+                    status = item.status or "error",
+                }
+            end
+        end
+    else
+        for k, v in pairs(data) do
+            if type(v) == "table" then
+                map[k] = {
+                    latency_ms = v.latency_ms or 9999,
+                    status = v.status or "error",
+                }
+            end
+        end
+    end
+    runtime.probe_results = map
+end
+
+local function fetch_json_async(url, timeout_secs, callback)
+    local t = timeout_secs or 2
+    local curl_cmd = {"curl.exe", "-s", "-m", tostring(t), url}
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = true,
+        args = curl_cmd,
+    }, function(success, res)
+        if success and res and res.status == 0 and res.stdout and res.stdout ~= "" then
+            local data, err = utils.parse_json(res.stdout)
+            if data and not err then
+                callback(true, data)
+                return
+            end
+        end
+
+        local py_code = string.format([[
+import urllib.request, sys
+try:
+    with urllib.request.urlopen(%q, timeout=%s) as resp:
+        sys.stdout.write(resp.read().decode('utf-8', errors='replace'))
+except Exception:
+    sys.exit(1)
+]], url, tostring(t))
+
+        mp.command_native_async({
+            name = "subprocess",
+            playback_only = false,
+            capture_stdout = true,
+            args = {py_cmd, "-c", py_code},
+        }, function(p_success, p_res)
+            if p_success and p_res and p_res.status == 0 and p_res.stdout and p_res.stdout ~= "" then
+                local data, err = utils.parse_json(p_res.stdout)
+                if data and not err then
+                    callback(true, data)
+                    return
+                end
+            end
+            callback(false, nil)
+        end)
+    end)
+end
+
 -- 並發測速節點
 local function probe_all_nodes(callback)
     if runtime.probing then return end
     runtime.probing = true
 
-    local hosts_to_test = {}
-    for _, h in ipairs(MAINLAND_HOSTS) do table.insert(hosts_to_test, h.id) end
-    for _, h in ipairs(OVERSEAS_HOSTS) do table.insert(hosts_to_test, h.id) end
+    local function finish(success, data)
+        runtime.probing = false
+        if success and data then
+            store_probe_data(data)
+        end
+        if callback then callback() end
+    end
 
-    local py_code = string.format([[
+    local function run_standalone_probe()
+        local hosts_to_test = {}
+        for _, h in ipairs(MAINLAND_HOSTS) do table.insert(hosts_to_test, h.id) end
+        for _, h in ipairs(OVERSEAS_HOSTS) do table.insert(hosts_to_test, h.id) end
+
+        local py_code = string.format([[
 import urllib.request, time, json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -233,21 +312,34 @@ with ThreadPoolExecutor(max_workers=len(hosts)) as pool:
 print(json.dumps(results))
 ]], utils.format_json(hosts_to_test))
 
-    mp.command_native_async({
-        name = "subprocess",
-        playback_only = false,
-        capture_stdout = true,
-        args = {py_cmd, "-c", py_code},
-    }, function(success, res)
-        runtime.probing = false
-        if success and res and res.stdout then
-            local data = utils.parse_json(res.stdout)
-            if data then
-                runtime.probe_results = data
+        mp.command_native_async({
+            name = "subprocess",
+            playback_only = false,
+            capture_stdout = true,
+            args = {py_cmd, "-c", py_code},
+        }, function(success, res)
+            if success and res and res.stdout and res.stdout ~= "" then
+                local data = utils.parse_json(res.stdout)
+                finish(true, data)
+            else
+                finish(false, nil)
             end
-        end
-        if callback then callback() end
-    end)
+        end)
+    end
+
+    local port = (runtime.engine_port and runtime.engine_port > 0) and runtime.engine_port or check_port_file()
+    if port and port > 0 then
+        local probe_url = string.format("http://127.0.0.1:%d/probe", port)
+        fetch_json_async(probe_url, 3, function(ok, data)
+            if ok and data then
+                finish(true, data)
+            else
+                run_standalone_probe()
+            end
+        end)
+    else
+        run_standalone_probe()
+    end
 end
 
 -- 取得最佳目標節點
@@ -394,8 +486,8 @@ local function rewrite_stream_filename(stream_path)
                 end
                 local new_url = ""
                 if engine_mode == "ripper" and port and port > 0 then
-                    new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d",
-                        port, url_encode(raw_url), target_host, settings.threads or 32)
+                    new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d&auto_threads=%d",
+                        port, url_encode(raw_url), target_host, settings.threads or 32, settings.auto_threads and 1 or 0)
                 else
                     new_url = raw_url:gsub("://[^/]+", "://" .. target_host, 1)
                 end
@@ -478,8 +570,8 @@ local function rewrite_stream_filename(stream_path)
         end
         local new_url = ""
         if engine_mode == "ripper" and port and port > 0 then
-            new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d",
-                port, url_encode(raw_url), target_host, settings.threads or 32)
+            new_url = string.format("http://127.0.0.1:%d/stream?url=%s&cdn=%s&threads=%d&auto_threads=%d",
+                port, url_encode(raw_url), target_host, settings.threads or 32, settings.auto_threads and 1 or 0)
         else
             new_url = raw_url:gsub("://[^/]+", "://" .. target_host, 1)
         end
@@ -506,6 +598,7 @@ mp.register_event("start-file", function()
     runtime.mode_used = ""
     runtime.original_stream_path = nil
     runtime.live_host_idx = 1
+    runtime.status_info = nil
     if settings.cdn_mode == "auto" and not next(runtime.probe_results) and not runtime.probing then
         probe_all_nodes()
     end
@@ -775,12 +868,28 @@ local function render_main_page(ass, x0, y0, w, h)
     local cache_bytes = mp.get_property_number("demuxer-cache-state/total-bytes") or 0
     local cache_mb = cache_bytes / (1024 * 1024)
 
-    ass:new_event()
-    ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}條線程",
-        x0 + 36, status_card_y + card_h / 2, active_threads))
-    ass:new_event()
-    ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%.1f {\\fs13\\b0\\1c&HAAAAAA&}MB 緩衝 (%.1fs)",
-        x0 + 20 + card_w - 16, status_card_y + card_h / 2, cache_mb, cache_secs))
+    if runtime.status_info then
+        local act = runtime.status_info.active_threads or 0
+        local is_auto = runtime.status_info.auto_threads
+        if is_auto == nil then is_auto = settings.auto_threads end
+        local auto_tag = is_auto and "(自動) " or ""
+
+        ass:new_event()
+        ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs16\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs12\\b0\\1c&HAAAAAA&}%s條活躍線程",
+            x0 + 34, status_card_y + card_h / 2, act, auto_tag))
+
+        local speed = runtime.status_info.speed_mbps or runtime.status_info.speed_mb_s or runtime.status_info.speed or 0
+        ass:new_event()
+        ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs13\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%.1f {\\fs11\\b0\\1c&HAAAAAA&}MB/s {\\1c&H555555&}| {\\1c&HFFFFFF&}%.1f {\\fs11\\b0\\1c&HAAAAAA&}MB 緩衝 (%.1fs)",
+            x0 + 20 + card_w - 14, status_card_y + card_h / 2, speed, cache_mb, cache_secs))
+    else
+        ass:new_event()
+        ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}條線程",
+            x0 + 36, status_card_y + card_h / 2, active_threads))
+        ass:new_event()
+        ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%.1f {\\fs13\\b0\\1c&HAAAAAA&}MB 緩衝 (%.1fs)",
+            x0 + 20 + card_w - 16, status_card_y + card_h / 2, cache_mb, cache_secs))
+    end
 
     -- 4. 高級設置 Section (卡片可點擊跳轉)
     local adv_card_y = status_card_y + card_h + 16
@@ -1146,7 +1255,12 @@ local function render_advanced_page(ass, x0, y0, w, h)
         ass:append(string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs11\\b1\\fnMicrosoft JhengHei\\1c&H9972FB&}%s",
             probe_x + probe_w / 2, content_y - 2 + probe_h / 2, runtime.probing and "測速中..." or "🔄 立即測速"))
 
-        local n_list_y = content_y + 26
+        -- 節點分頁說明
+        ass:new_event()
+        ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs10\\fnMicrosoft JhengHei\\1c&H888888&}點選可鎖定優先主節點；其餘綠燈健康節點將自動加入多線程調度池，紅燈超時節點自動排除。",
+            x0 + 20, content_y + 24))
+
+        local n_list_y = content_y + 42
         local n_card_h = 32
         local all_nodes = {
             { id = "upos-sz-mirrorhw.bilivideo.com", name = "大陸 華為雲" },
@@ -1368,7 +1482,11 @@ local function on_mouse_click()
                     settings.cdn_mode = "mainland"
                 end
                 save_settings()
-                mp.osd_message("[BTR] 已切換優選節點: " .. btn.host, 1.5)
+                if runtime.is_accelerated then
+                    mp.osd_message(string.format("[BTR] 已切換優選節點至：%s\n將於下一次尋軌或切集時生效", btn.host), 3.0)
+                else
+                    mp.osd_message("[BTR] 已切換優選節點: " .. btn.host, 1.5)
+                end
                 render_menu()
             elseif btn.id == "probe_all" then
                 probe_all_nodes(function()
@@ -1381,9 +1499,46 @@ local function on_mouse_click()
     end
 end
 
+local status_timer = nil
+
+local function start_status_timer()
+    if status_timer then
+        status_timer:kill()
+        status_timer = nil
+    end
+
+    local function fetch_status()
+        if not is_open then return end
+        local port = (runtime.engine_port and runtime.engine_port > 0) and runtime.engine_port or check_port_file()
+        if not port or port <= 0 then return end
+
+        local status_url = string.format("http://127.0.0.1:%d/status", port)
+        fetch_json_async(status_url, 1, function(ok, data)
+            if not is_open then return end
+            if ok and data then
+                runtime.status_info = data
+                if runtime.page == "main" then
+                    render_menu()
+                end
+            end
+        end)
+    end
+
+    fetch_status()
+    status_timer = mp.add_periodic_timer(1.0, fetch_status)
+end
+
+local function stop_status_timer()
+    if status_timer then
+        status_timer:kill()
+        status_timer = nil
+    end
+end
+
 close_menu = function()
     if not is_open then return end
     is_open = false
+    stop_status_timer()
     hovered_btn = nil
     set_pointer_cursor(false)
 
@@ -1405,6 +1560,7 @@ local function open_menu(initial_page)
     is_open = true
     hovered_btn = nil
     runtime.page = initial_page or "main"
+    start_status_timer()
     prev_dragging = mp.get_property("window-dragging", "yes")
     pcall(function()
         mp.set_property("window-dragging", "no")
