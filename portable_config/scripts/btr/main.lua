@@ -878,10 +878,11 @@ local function render_main_page(ass, x0, y0, w, h)
         ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs16\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs12\\b0\\1c&HAAAAAA&}%s條活躍線程",
             x0 + 34, status_card_y + card_h / 2, act, auto_tag))
 
-        local speed = runtime.status_info.speed_mbps or runtime.status_info.speed_mb_s or runtime.status_info.speed or 0
+        local speed_mbps = runtime.status_info.speed_mbps or runtime.status_info.speed_mb_s or runtime.status_info.speed or 0
+        local speed_mb_s = speed_mbps / 8.0
         ass:new_event()
         ass:append(string.format("{\\an6\\pos(%d,%d)\\bord0\\shad0\\fs13\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%.1f {\\fs11\\b0\\1c&HAAAAAA&}MB/s {\\1c&H555555&}| {\\1c&HFFFFFF&}%.1f {\\fs11\\b0\\1c&HAAAAAA&}MB 緩衝 (%.1fs)",
-            x0 + 20 + card_w - 14, status_card_y + card_h / 2, speed, cache_mb, cache_secs))
+            x0 + 20 + card_w - 14, status_card_y + card_h / 2, speed_mb_s, cache_mb, cache_secs))
     else
         ass:new_event()
         ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs17\\b1\\fnMicrosoft JhengHei\\1c&HFFFFFF&}%d {\\fs13\\b0\\1c&HAAAAAA&}條線程",
@@ -1257,7 +1258,7 @@ local function render_advanced_page(ass, x0, y0, w, h)
 
         -- 節點分頁說明
         ass:new_event()
-        ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs10\\fnMicrosoft JhengHei\\1c&H888888&}點選可鎖定優先主節點；其餘綠燈健康節點將自動加入多線程調度池，紅燈超時節點自動排除。",
+        ass:append(string.format("{\\an4\\pos(%d,%d)\\bord0\\shad0\\fs10\\fnMicrosoft JhengHei\\1c&H888888&}點選鎖定主節點；其餘綠燈節點自動加入調度，紅燈排除。",
             x0 + 20, content_y + 24))
 
         local n_list_y = content_y + 42
