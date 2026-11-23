@@ -18,16 +18,23 @@ url-scheme-handler/config.json
 *.danmaku.xml
 portable_config/scripts/mpv-danmaku/*.xml
 
-# Temporary files, agent metadata, and python cache
+# Temporary files, test suite, agent metadata, and python cache
 prove-it/
 .agents/
 __pycache__/
 *.pyc
 *.part
-*.tmp
 *.log
+*.tmp
 *.bgra
 mpv_btr_port*.txt
+
+# Third-party submodule/clone dev files
+portable_config/scripts/file-browser/.github/
+portable_config/scripts/file-browser/screenshots/
+portable_config/scripts/file-browser/.gitignore
+portable_config/scripts/file-browser/.luarc.json
+portable_config/scripts/file-browser/AGENTS.md
 
 # Portable Python runtime
 python/
