@@ -5,11 +5,12 @@
 
 # Sensitive user credentials and dynamic cache
 *cookies*
+cookies.txt
 portable_config/cookies.txt
 portable_config/cache/
 portable_config/watch_later/
-portable_config/sponsorblock_shared/*
-!portable_config/sponsorblock_shared/sponsor_unified.py
+portable_config/sponsorblock_shared/sponsorblock.txt
+portable_config/sponsorblock_shared/sponsorblock.py
 portable_config/file_browser-last_opened_directory
 url-scheme-handler/config.json
 
@@ -18,16 +19,13 @@ url-scheme-handler/config.json
 portable_config/scripts/mpv-danmaku/*.xml
 
 # Temporary files, agent metadata, and python cache
+prove-it/
 .agents/
 __pycache__/
 *.pyc
 *.part
 *.tmp
 *.log
-prove-it/screenshots/
-prove-it/*.log
-prove-it/*_debug.log
-prove-it/settled_test.log
 *.bgra
 mpv_btr_port*.txt
 
