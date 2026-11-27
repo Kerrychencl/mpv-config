@@ -12,6 +12,11 @@
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
+-- 預設不將 YouTube 登入 Cookie 傳給 yt-dlp：
+-- 避免觸發 YouTube 登入態 SABR 限制與冷啟動 PO Token 延遲（未看會員片時免登速度最快；
+-- 若遇風控則由 yt_dlp_plugins/bgutil-pot 自動處理訪客 PO Token）。需要看會員片時改為 true 即可。
+local include_youtube_cookies = false
+
 local mpv_root = mp.command_native({"expand-path", "~~/"})
 local user_cookie_file = utils.join_path(mpv_root, "cookies.txt")
 local temp_dir = os.getenv("TEMP") or utils.join_path(mpv_root, "cache")
@@ -48,23 +53,50 @@ local function strip_bom(str)
     return str
 end
 
+local last_written_cookie_payload = nil
+
 local function write_active_cookies(general_lines, bili_lines, include_bili)
-    local out = io.open(active_cookie_file, "w")
-    if out then
-        out:write("# Netscape HTTP Cookie File\n")
-        if general_lines then
-            for _, line in ipairs(general_lines) do
-                out:write(line .. "\n")
+    local chunks = { "# Netscape HTTP Cookie File\n" }
+    if general_lines then
+        for _, line in ipairs(general_lines) do
+            table.insert(chunks, line .. "\n")
+        end
+    end
+    if include_bili and bili_lines then
+        for _, line in ipairs(bili_lines) do
+            table.insert(chunks, line .. "\n")
+        end
+    end
+    local payload = table.concat(chunks)
+
+    if payload ~= last_written_cookie_payload or not utils.file_info(active_cookie_file) then
+        local tmp_file = active_cookie_file .. ".tmp"
+        local out = io.open(tmp_file, "wb")
+        if out then
+            out:write(payload)
+            out:close()
+            local ok = os.rename(tmp_file, active_cookie_file)
+            if not ok then
+                os.remove(active_cookie_file)
+                ok = os.rename(tmp_file, active_cookie_file)
+            end
+            if ok then
+                last_written_cookie_payload = payload
+            else
+                os.remove(tmp_file)
+                local direct = io.open(active_cookie_file, "wb")
+                if direct then
+                    direct:write(payload)
+                    direct:close()
+                    last_written_cookie_payload = payload
+                end
             end
         end
-        if include_bili and bili_lines then
-            for _, line in ipairs(bili_lines) do
-                out:write(line .. "\n")
-            end
-        end
-        out:close()
     end
 
+    if mp.get_property("cookies-file", "") ~= active_cookie_file then
+        mp.set_property("cookies-file", active_cookie_file)
+    end
     local ytdl_raw = mp.get_property("ytdl-raw-options", "")
     if not ytdl_raw:find("cookies=") then
         mp.commandv("change-list", "ytdl-raw-options", "append", "cookies=" .. active_cookie_file)
@@ -180,11 +212,12 @@ end
 
 -- 憑證同步核心：
 -- 1. 同步階段僅做本地 cookies.txt 解析與寫入 mpv_active_cookies.txt，UI 零凍結
--- 2. 網路校驗與瀏覽器提取均走非同步
--- 3. 預設允許 1 次重試，遞迴調用傳入 sync_cookies(false, false)；若再失敗則直接鎖定訪客保底，徹底防止爆棧
-local function sync_cookies(force_verify, allow_browser_retry, on_complete)
+-- 2. 預設不自動啟動瀏覽器提取（避免每次開 MPV 背景空跑 yt-dlp --cookies-from-browser）；改由右鍵選單手動觸發
+-- 3. 僅在實際開啟 B 站影片或手動同步時才非同步校驗 B 站 SESSDATA，開 YouTube／本機檔零額外子程序開銷
+local function sync_cookies(force_verify, allow_browser_retry, on_complete, skip_bili_verify)
     if force_verify == nil then force_verify = false end
-    if allow_browser_retry == nil then allow_browser_retry = true end
+    if allow_browser_retry == nil then allow_browser_retry = false end
+    if skip_bili_verify == nil then skip_bili_verify = false end
 
     local f = io.open(user_cookie_file, "r")
     local content = nil
@@ -226,22 +259,27 @@ local function sync_cookies(force_verify, allow_browser_retry, on_complete)
     local bili_pairs = {}
 
     for line in content:gmatch("[^\r\n]+") do
-        local trimmed = line:match("^%s*(.-)%s*$")
-        if trimmed and trimmed ~= "" and not trimmed:match("^#") then
+        local trimmed = line:match("^ *(.-) *$")
+        local is_httponly = trimmed and trimmed:match("^#HttpOnly_") ~= nil
+        if trimmed and trimmed ~= "" and (not trimmed:match("^#") or is_httponly) then
             local _, tab_count = trimmed:gsub("\t", "")
-            if tab_count >= 5 then
+            if tab_count >= 6 then
                 local parts = {}
-                for p in trimmed:gmatch("[^\t]+") do table.insert(parts, p) end
-                local is_bili = (parts[1] and (parts[1]:find("bilibili%.") or parts[1]:find("biligame%.") or parts[1]:find("huasheng%.")))
-                if is_bili then
-                    table.insert(bili_lines, trimmed)
-                    if #parts >= 7 then
-                        table.insert(bili_pairs, parts[6] .. "=" .. parts[7])
+                for p in (trimmed .. "\t"):gmatch("([^\t]*)\t") do table.insert(parts, p) end
+                local raw_domain = (parts[1] or ""):gsub("^#HttpOnly_", "")
+                local c_name = parts[6] or ""
+                local c_val = parts[7] or ""
+                if raw_domain ~= "" and c_name ~= "" and c_val ~= "" then
+                    local is_bili = (raw_domain:find("bilibili%.") or raw_domain:find("biligame%.") or raw_domain:find("huasheng%.") or raw_domain:find("b23%.tv") or raw_domain:find("bilivideo%."))
+                    local is_yt = (raw_domain:find("youtube%.") or raw_domain:find("youtu%.be") or raw_domain:find("google%.") or raw_domain:find("googlevideo%."))
+                    if is_bili then
+                        table.insert(bili_lines, trimmed)
+                        table.insert(bili_pairs, c_name .. "=" .. c_val)
+                    elseif (not is_yt) or include_youtube_cookies then
+                        table.insert(general_lines, trimmed)
                     end
-                else
-                    table.insert(general_lines, trimmed)
                 end
-            else
+            elseif tab_count == 0 then
                 local clean = trimmed:gsub("^[Cc]ookie:%s*", "")
                 for pair in clean:gmatch("[^;]+") do
                     local k, v = pair:match("^%s*([^=]+)%s*=%s*(.-)%s*$")
@@ -252,7 +290,7 @@ local function sync_cookies(force_verify, allow_browser_retry, on_complete)
                         if not is_yt then
                             table.insert(bili_lines, netscape_line)
                             table.insert(bili_pairs, k .. "=" .. v)
-                        else
+                        elseif include_youtube_cookies then
                             table.insert(general_lines, netscape_line)
                         end
                     end
@@ -280,7 +318,7 @@ local function sync_cookies(force_verify, allow_browser_retry, on_complete)
     end
 
     local now = os.time()
-    local need_verify = (#bili_pairs > 0) and (force_verify or not bili_verified or (now - last_verify_time > 3600))
+    local need_verify = (not skip_bili_verify) and (#bili_pairs > 0) and (force_verify or not bili_verified or (now - last_verify_time > 3600))
 
     if not need_verify then
         if #bili_pairs == 0 then
@@ -403,18 +441,31 @@ mp.register_script_message("sync-browser-cookies", function()
     try_extract_browser_cookies(true, function(ok, browser)
         if ok then
             sync_cookies(true, false, function(valid, uname, is_vip)
+                local yt_status = include_youtube_cookies and "憑證已就緒" or "免登極速模式"
                 if valid then
-                    mp.osd_message(string.format("[Cookies] 同步成功 (%s)！\nB 站: %s%s\nYouTube: 憑證已就緒", browser, uname or "已登入", is_vip and " (大會員)" or ""), 4)
+                    mp.osd_message(string.format("[Cookies] 同步成功 (%s)！\nB 站: %s%s\nYouTube: %s", browser, uname or "已登入", is_vip and " (大會員)" or "", yt_status), 4)
                 else
-                    mp.osd_message(string.format("[Cookies] 同步完成 (%s)！\nB 站: 訪客模式 (最高 1080P)\nYouTube: 憑證已就緒", browser), 4)
+                    mp.osd_message(string.format("[Cookies] 同步完成 (%s)！\nB 站: 訪客模式 (最高 1080P)\nYouTube: %s", browser, yt_status), 4)
                 end
-            end)
+            end, false)
         else
             mp.osd_message("[Cookies] 同步失敗：請確認 Firefox 是否有登入該網站", 4)
         end
     end)
 end)
 
-sync_cookies(true)
-mp.register_event("start-file", function() sync_cookies(false) end)
+local function is_bilibili_path(p)
+    if not p or p == "" then return false end
+    local lp = p:lower()
+    return lp:find("bilibili%.com") or lp:find("b23%.tv") or lp:find("bili2233%.cn") or lp:find("acg%.tv") or lp:find("bilivideo%.com") or lp:find("/upgcxcode/")
+end
+
+-- 啟動時先寫入純淨暫存檔並僅用輕量非同步 curl 預校驗 B 站 SESSDATA（~0.25s，不啟動第二個 yt-dlp）；
+-- 避免首部 B 站影片誤吃過期憑證，也不干擾 YouTube 秒開。
+sync_cookies(false, false, nil, false)
+mp.register_event("start-file", function()
+    local cur_path = mp.get_property("path", "")
+    local need_bili_check = is_bilibili_path(cur_path)
+    sync_cookies(false, false, nil, not need_bili_check)
+end)
 mp.add_hook("on_load", 15, inject_cookie_header)

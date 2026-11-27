@@ -36,5 +36,6 @@ portable_config/scripts/file-browser/.gitignore
 portable_config/scripts/file-browser/.luarc.json
 portable_config/scripts/file-browser/AGENTS.md
 
-# Portable Python runtime
+# Portable Python runtime & yt-dlp onedir runtime
 python/
+_internal/

@@ -78,13 +78,70 @@ function Download-Ytplugin ($plugin, $version) {
     $plugin_exe = ""
     switch -wildcard ($plugin) {
         "yt-dlp*" {
-            Write-Host "Downloading $plugin ($version)" -ForegroundColor Green
-            $32bit = ""
-            if (-Not (Test-Path (Join-Path $env:windir "SysWow64"))) {
-                $32bit = "_x86"
+            if (Test-Path (Join-Path $env:windir "SysWow64")) {
+                Write-Host "Downloading $plugin onedir nightly ($version)" -ForegroundColor Green
+                $zip_file = Join-Path (Get-Location) "yt-dlp_win.zip"
+                $staging_dir = Join-Path (Get-Location) "_ytdlp_update_tmp"
+                $link = -join("https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/", $version, "/yt-dlp_win.zip")
+                try {
+                    Invoke-WebRequest -Uri $link -UserAgent $useragent -OutFile $zip_file
+                    if (Test-Path $staging_dir) {
+                        Remove-Item -Recurse -Force $staging_dir
+                    }
+                    Write-Host "Extracting yt-dlp_win.zip (onedir)" -ForegroundColor Green
+                    Expand-Archive -Path $zip_file -DestinationPath $staging_dir -Force
+                    $new_exe = Join-Path $staging_dir "yt-dlp.exe"
+                    $new_internal = Join-Path $staging_dir "_internal"
+                    if (-not (Test-Path $new_exe) -or -not (Test-Path $new_internal)) {
+                        throw "yt-dlp_win.zip structure invalid (missing yt-dlp.exe or _internal)"
+                    }
+                    $target_exe = Join-Path (Get-Location) "yt-dlp.exe"
+                    $target_internal = Join-Path (Get-Location) "_internal"
+                    $bak_exe = Join-Path (Get-Location) "yt-dlp.exe.bak"
+                    $bak_internal = Join-Path (Get-Location) "_internal.bak"
+                    if (Test-Path $bak_exe) { Remove-Item -Force $bak_exe }
+                    if (Test-Path $bak_internal) { Remove-Item -Recurse -Force $bak_internal }
+
+                    $moved_exe_bak = $false
+                    $moved_internal_bak = $false
+                    try {
+                        if (Test-Path $target_exe) {
+                            Move-Item -Force $target_exe $bak_exe -ErrorAction Stop
+                            $moved_exe_bak = $true
+                        }
+                        if (Test-Path $target_internal) {
+                            Move-Item -Force $target_internal $bak_internal -ErrorAction Stop
+                            $moved_internal_bak = $true
+                        }
+                        Move-Item -Force $new_exe $target_exe -ErrorAction Stop
+                        Move-Item -Force $new_internal $target_internal -ErrorAction Stop
+                    }
+                    catch {
+                        Write-Host "Update failed during swap, rolling back previous yt-dlp..." -ForegroundColor Yellow
+                        if ($moved_exe_bak -and (Test-Path $bak_exe)) {
+                            if (Test-Path $target_exe) { Remove-Item -Force $target_exe -ErrorAction Ignore }
+                            Move-Item -Force $bak_exe $target_exe -ErrorAction Ignore
+                        }
+                        if ($moved_internal_bak -and (Test-Path $bak_internal)) {
+                            if (Test-Path $target_internal) { Remove-Item -Recurse -Force $target_internal -ErrorAction Ignore }
+                            Move-Item -Force $bak_internal $target_internal -ErrorAction Ignore
+                        }
+                        throw
+                    }
+                    if (Test-Path $bak_exe) { Remove-Item -Force $bak_exe -ErrorAction Ignore }
+                    if (Test-Path $bak_internal) { Remove-Item -Recurse -Force $bak_internal -ErrorAction Ignore }
+                }
+                finally {
+                    if (Test-Path $staging_dir) { Remove-Item -Recurse -Force $staging_dir -ErrorAction Ignore }
+                    if (Test-Path $zip_file) { Remove-Item -Force $zip_file -ErrorAction Ignore }
+                }
+                return
             }
-            $link = -join("https://github.com/yt-dlp/yt-dlp/releases/download/", $version, "/", $plugin, $32bit, ".exe")
-            $plugin_exe = -join($plugin, $32bit, ".exe")
+            else {
+                Write-Host "Downloading $plugin x86 nightly ($version)" -ForegroundColor Green
+                $link = -join("https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/", $version, "/yt-dlp_x86.exe")
+                $plugin_exe = "yt-dlp_x86.exe"
+            }
         }
         "youtube-dl" {
             Write-Host "Downloading $plugin ($version)" -ForegroundColor Green
@@ -141,8 +198,8 @@ function Get-Latest-Mpv($Arch, $channel) {
 function Get-Latest-Ytplugin ($plugin) {
     switch -wildcard ($plugin) {
         "yt-dlp*" {
-            $link = "https://github.com/yt-dlp/yt-dlp/releases.atom"
-            Write-Host "Fetching RSS feed for ytp-dlp" -ForegroundColor Green
+            $link = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases.atom"
+            Write-Host "Fetching RSS feed for yt-dlp (nightly)" -ForegroundColor Green
             $resp = [xml](Invoke-WebRequest $link -MaximumRedirection 0 -ErrorAction Ignore -UseBasicParsing).Content
             $link = $resp.feed.entry[0].link.href
             $version = $link.split("/")[-1]
@@ -437,12 +494,27 @@ function Upgrade-Ytplugin {
     }
     $yt = Check-Ytplugin
     if ($yt) {
-        $latest_release = Get-Latest-Ytplugin((Get-Item $yt).BaseName)
-        if ((& $yt --version) -match ($latest_release)) {
-            Write-Host "You are already using latest" (Get-Item $yt).BaseName "-- $latest_release" -ForegroundColor Green
+        $base = (Get-Item $yt).BaseName
+        $latest_release = Get-Latest-Ytplugin $base
+        $current_ver = ((& $yt --version) | Out-String).Trim()
+        if ($base -like "yt-dlp*") {
+            $is_64bit = Test-Path (Join-Path $env:windir "SysWow64")
+            $is_onedir = Test-Path (Join-Path (Get-Location) "_internal")
+            $variant_ok = (-not $is_64bit) -or $is_onedir
+            $variant_label = if ($is_64bit) { "onedir nightly" } else { "x86 nightly" }
+            if (($current_ver -eq $latest_release) -and $variant_ok) {
+                Write-Host "You are already using latest $base ($variant_label) -- $latest_release" -ForegroundColor Green
+            }
+            else {
+                Write-Host "Updating $base to $variant_label -- $latest_release" -ForegroundColor Green
+                Download-Ytplugin "yt-dlp" $latest_release
+            }
+        }
+        elseif ($current_ver -match [regex]::Escape($latest_release)) {
+            Write-Host "You are already using latest $base -- $latest_release" -ForegroundColor Green
         }
         else {
-            Write-Host "Newer" (Get-Item $yt).BaseName "build available" -ForegroundColor Green
+            Write-Host "Newer $base build available" -ForegroundColor Green
             & $yt --update
         }
     }
